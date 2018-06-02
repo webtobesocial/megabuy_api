@@ -1,0 +1,4 @@
+whoosh
+static
+*.pyc
+*.db
