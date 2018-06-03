@@ -304,7 +304,7 @@ def delete_user(current_user, public_id):
     db.session.delete(user)
     db.session.commit()
 
-    return jsonify({'status': 'success', 'message': 'The user has been deleted!'})
+    return jsonify({'status': 'success', 'message': 'The user has been deleted!'}), 204
 
 
 @app.route('/logout', methods=['POST'])
@@ -431,7 +431,7 @@ def delete_product_category(current_user, product_category_id):
     db.session.delete(product_category)
     db.session.commit()
 
-    return jsonify({'status': 'success', 'message': 'Product item deleted!'})
+    return jsonify({'status': 'success', 'message': 'Product item deleted!'}), 204
 
 
 @app.route('/product-category/<product_category_id>', methods=['PUT'])
@@ -641,7 +641,7 @@ def delete_product(current_user, product_id):
     db.session.delete(product)
     db.session.commit()
 
-    return jsonify({'status': 'success', 'message': 'Product item deleted!'})
+    return jsonify({'status': 'success', 'message': 'Product item deleted!'}), 204
 
 
 def img_to_base64(filename):
@@ -762,7 +762,7 @@ def delete_one_message(current_user, user_id, message_id):
     db.session.delete(message)
     db.session.commit()
 
-    return jsonify({'status': 'success', 'message': 'The message has been deleted!'})
+    return jsonify({'status': 'success', 'message': 'The message has been deleted!'}), 204
 
 
 @app.route('/inbox/user/<user_id>', methods=['GET'])
