@@ -135,7 +135,6 @@ def token_required(f):
         if 'Authorization' in request.headers:
             token = request.headers['Authorization'].split(' ')[1]
 
-        print token
         if not token:
             return jsonify({'status': 'not authorized', 'message': 'Token is missing!'}), 401
 
@@ -706,18 +705,19 @@ def create_message(current_user):
     return jsonify({'status': 'success', 'message': 'New message send!'})
 
 
-@app.route('/inbox/<message_id>', methods=['PUT'])
+@app.route('/inbox/user/<user_id>/<message_id>', methods=['PUT'])
 @token_required
-def update_message(current_user, message_id):
+def update_one_message(current_user, user_id, message_id):
+    if current_user.id != user_id:
+        return jsonify({'status': 'fail', 'message': 'Error, you are not allowed to do this action.'})
+
     data = request.get_json()
-    message = Inbox.query.filter_by(
-        id=message_id, user_id=current_user.id).first()
+    message = Inbox.query.filter_by(id=message_id, user_id=current_user.id).first()
 
     if not message:
-        return jsonify({'status': 'not found', 'message': 'No message  with id {} found!'.format(message_id)}), 404
+        return jsonify({'status': 'not found', 'message': 'No message with id {} found!'.format(message_id)}), 404
 
-    product.read = data['read']
-
+    message.read = data
     db.session.commit()
 
     return jsonify({'status': 'success', 'message': 'Product item has been updated'})
@@ -776,6 +776,7 @@ def get_all_messages_by_user(current_user, user_id):
         for message in messages:
             inbox_data = {}
             inbox_data['id'] = message.Inbox.id
+            inbox_data['read'] = message.Inbox.read
             inbox_data['created'] = message.Inbox.created_date
             inbox_data['subject'] = message.Inbox.subject
             inbox_data['message'] = message.Inbox.message
