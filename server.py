@@ -96,8 +96,9 @@ class Product(db.Model):
 
 class ProductImage(db.Model):
     id = db.Column(db.String(50), primary_key=True)
-    # created_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    created_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
     image = db.Column(db.String(500))
+    user_id = db.Column(db.String(50))
     product_id = db.Column(db.String(50))
 
 
@@ -522,7 +523,7 @@ def get_all_products_by_category(category_id):
 @app.route('/product/user/<user_id>', methods=['GET'])
 def get_all_products_by_user(user_id):
     products = db.session.query(func.group_concat(ProductImage.id).label('product_image_id'),
-        Product, ProductCategory, ProductImage, Currency, User).filter(
+                                Product, ProductCategory, ProductImage, Currency, User).filter(
         Product.category_id == ProductCategory.id).filter(Product.id == ProductImage.product_id).filter(
         Product.user_id == user_id).filter(Product.user_id == User.id).filter(
         Product.currency_id == Currency.id).group_by(Product.id).all()
@@ -653,19 +654,19 @@ def img_to_base64(filename):
     return img_txt
 
 
-@app.route('/upload', methods=['POST'])
+@app.route('/product', methods=['POST'])
 @token_required
 def create_product(current_user):
     data = request.form
 
     product_id = str(uuid.uuid4()).split('-')[4]
 
-    for photo in request.files.getlist('thumbnail'):
+    for image in request.files.getlist('image'):
         product_image_id = str(uuid.uuid4()).split('-')[4]
-        filetype = photo.mimetype.split('/')[1]
+        filetype = image.mimetype.split('/')[1]
         name = '{}.{}'.format(product_image_id, filetype)
         path = 'static/img/{}'.format(name)
-        photo.save(path)
+        image.save(path)
 
         try:
             with Image.open(path) as image:
@@ -674,7 +675,7 @@ def create_product(current_user):
                 cover.save(path, image.format)
                 db.session.add(
                     ProductImage(
-                        id=product_image_id, product_id=product_id, image=img_to_base64(path))
+                        id=product_image_id, product_id=product_id, user_id=str(current_user.id), image=path)
                 )
                 db.session.flush()
                 db.session.commit()
@@ -702,12 +703,12 @@ def update_product_image(current_user):
 
     product_id = data['product_id']
 
-    for photo in request.files.getlist('image'):
+    for image in request.files.getlist('image'):
         product_image_id = str(uuid.uuid4()).split('-')[4]
-        filetype = photo.mimetype.split('/')[1]
+        filetype = image.mimetype.split('/')[1]
         name = '{}.{}'.format(product_image_id, filetype)
         path = 'static/img/{}'.format(name)
-        photo.save(path)
+        image.save(path)
 
         try:
             with Image.open(path) as image:
@@ -716,7 +717,7 @@ def update_product_image(current_user):
                 cover.save(path, image.format)
                 db.session.add(
                     ProductImage(
-                        id=product_image_id, product_id=product_id, image=img_to_base64(path))
+                        id=product_image_id, product_id=product_id, image=path)
                 )
                 db.session.flush()
                 db.session.commit()
@@ -828,12 +829,14 @@ def get_all_messages_by_user(current_user, user_id):
 
 @app.route('/image/product/<product_id>', methods=['GET'])
 def get_one_image(product_id):
-    images = db.session.query(ProductImage).filter_by(product_id=product_id).all()
+    images = db.session.query(ProductImage).filter_by(
+        product_id=product_id).all()
 
     output = []
     for image in images:
         image_data = {}
         image_data['id'] = image.id
+        image_data['user_id'] = image.user_id
         image_data['image'] = image.image
         output.append(image_data)
 
