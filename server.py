@@ -156,7 +156,7 @@ def token_required(f):
     return decorated
 
 
-@app.route('/user', methods=['GET'])
+@app.route('/api/user', methods=['GET'])
 @token_required
 def get_all_users(current_user):
     try:
@@ -184,7 +184,7 @@ def get_all_users(current_user):
     return jsonify({'status': 'success', 'total': total, 'users': output})
 
 
-@app.route('/user/<public_id>', methods=['GET'])
+@app.route('/api/user/<public_id>', methods=['GET'])
 @token_required
 def get_one_user(current_user, public_id):
     user = User.query.filter_by(public_id=public_id).first()
@@ -204,7 +204,7 @@ def get_one_user(current_user, public_id):
     return jsonify({'status': 'success', 'user': user_data})
 
 
-@app.route('/user', methods=['POST'])
+@app.route('/api/user', methods=['POST'])
 def create_user():
     data = request.get_json()
 
@@ -254,7 +254,7 @@ def create_user():
         return jsonify({'status': 'success', 'message': 'New user created!'}), 201
 
 
-@app.route('/user/<public_id>', methods=['PUT'])
+@app.route('/api/user/<public_id>', methods=['PUT'])
 @token_required
 def update_user(current_user, public_id):
     data = request.get_json()
@@ -292,7 +292,7 @@ def update_user_query(user, data):
         return jsonify({'status': 'success', 'message': 'Upated user {}'.format(user.public_id)})
 
 
-@app.route('/user/<public_id>', methods=['DELETE'])
+@app.route('/api/user/<public_id>', methods=['DELETE'])
 @token_required
 def delete_user(current_user, public_id):
     if not current_user.admin:
@@ -309,7 +309,7 @@ def delete_user(current_user, public_id):
     return jsonify({'status': 'success', 'message': 'The user has been deleted!'}), 204
 
 
-@app.route('/logout', methods=['POST'])
+@app.route('/api/logout', methods=['POST'])
 @token_required
 def logout(current_user):
     request_token = request.headers.get('authorization').split(' ')[1]
@@ -322,7 +322,7 @@ def logout(current_user):
     return jsonify({'status': 'success', 'message': 'Successfully logged out!'})
 
 
-@app.route('/status', methods=['GET'])
+@app.route('/api/status', methods=['GET'])
 def login_status():
     request_token = request.headers.get('authorization').split(' ')[1]
     token = db.session.query(Token, User).filter(
@@ -337,7 +337,7 @@ def login_status():
         return jsonify({'status': 'not authorized', 'message': 'Please login!'}), 401
 
 
-@app.route('/login', methods=['POST'])
+@app.route('/api/login', methods=['POST'])
 def login():
     auth = request.authorization
 
@@ -370,7 +370,7 @@ def login():
     return make_response(jsonify({'status': 'not authorized', 'message': 'Could not verify your credentials!'}), 401, {'WWW-Authenticate': 'Basic realm="Login required"'})
 
 
-@app.route('/currencies', methods=['GET'])
+@app.route('/api/currencies', methods=['GET'])
 def get_all_currencies():
     currencies = Currency.query.all()
     output = []
@@ -386,7 +386,7 @@ def get_all_currencies():
     return jsonify({'status': 'success', 'currencies': output})
 
 
-@app.route('/product-categories', methods=['GET'])
+@app.route('/api/product-categories', methods=['GET'])
 def get_all_product_categories():
     product_categories = ProductCategory.query.order_by(
         ProductCategory.user_id.desc()).all()
@@ -403,7 +403,7 @@ def get_all_product_categories():
     return jsonify({'status': 'success', 'product-categories': output})
 
 
-@app.route('/product-categories/user', methods=['GET'])
+@app.route('/api/product-categories/user', methods=['GET'])
 @token_required
 def get_all_product_categories_by_user(current_user):
     product_categories = ProductCategory.query.filter_by(
@@ -421,7 +421,7 @@ def get_all_product_categories_by_user(current_user):
     return jsonify({'status': 'success', 'product-categories': output})
 
 
-@app.route('/product-category/<product_category_id>', methods=['DELETE'])
+@app.route('/api/product-category/<product_category_id>', methods=['DELETE'])
 @token_required
 def delete_product_category(current_user, product_category_id):
     product_category = ProductCategory.query.filter_by(
@@ -436,7 +436,7 @@ def delete_product_category(current_user, product_category_id):
     return jsonify({'status': 'success', 'message': 'Product item deleted!'}), 204
 
 
-@app.route('/product-category/<product_category_id>', methods=['PUT'])
+@app.route('/api/product-category/<product_category_id>', methods=['PUT'])
 @token_required
 def update_product_category(current_user, product_category_id):
     data = request.get_json()
@@ -454,7 +454,7 @@ def update_product_category(current_user, product_category_id):
     return jsonify({'status': 'success', 'message': 'Product item has been updated'})
 
 
-@app.route('/product-category', methods=['POST'])
+@app.route('/api/product-category', methods=['POST'])
 @token_required
 def create_product_category(current_user):
     data = request.get_json()
@@ -470,7 +470,7 @@ def create_product_category(current_user):
     return jsonify({'status': 'success', 'message': 'New product added!'})
 
 
-@app.route('/products', methods=['GET'])
+@app.route('/api/products', methods=['GET'])
 def get_all_products():
     # filter(ProductImage.product_id == Product.id)
     products = db.session.query(Product, ProductCategory, ProductImage, Currency, User).filter(
@@ -495,7 +495,7 @@ def get_all_products():
     return jsonify({'status': 'success', 'products': output})
 
 
-@app.route('/product/category/<category_id>', methods=['GET'])
+@app.route('/api/product/category/<category_id>', methods=['GET'])
 def get_all_products_by_category(category_id):
     products = db.session.query(Product, ProductCategory, ProductImage, Currency, User).filter(
         Product.category_id == ProductCategory.id).filter(Product.id == ProductImage.product_id).filter(
@@ -520,7 +520,7 @@ def get_all_products_by_category(category_id):
     return jsonify({'status': 'success', 'products': output})
 
 
-@app.route('/product/user/<user_id>', methods=['GET'])
+@app.route('/api/product/user/<user_id>', methods=['GET'])
 def get_all_products_by_user(user_id):
     products = db.session.query(func.group_concat(ProductImage.id).label('product_image_id'),
                                 Product, ProductCategory, ProductImage, Currency, User).filter(
@@ -564,7 +564,7 @@ def get_currency_unit(currency_id):
     return Currency.query.filter_by(id=currency_id).first().unit_symbol
 
 
-@app.route('/search/<search_query>', methods=['GET'])
+@app.route('/api/search/<search_query>', methods=['GET'])
 def get_all_products_by_query(search_query):
     products = Product.query.whoosh_search(search_query).all()
 
@@ -587,7 +587,7 @@ def get_all_products_by_query(search_query):
     return jsonify({'status': 'success', 'products': output})
 
 
-@app.route('/product/<product_id>', methods=['GET'])
+@app.route('/api/product/<product_id>', methods=['GET'])
 def get_one_product(product_id):
     product = db.session.query(func.group_concat(ProductImage.image).label('product_images'),
                                Product, ProductCategory, ProductImage, Currency, User).filter(Product.user_id == User.id).filter(
@@ -613,7 +613,7 @@ def get_one_product(product_id):
     return jsonify(product_data)
 
 
-@app.route('/product/<product_id>', methods=['PUT'])
+@app.route('/api/product/<product_id>', methods=['PUT'])
 @token_required
 def update_product(current_user, product_id):
     data = request.get_json()
@@ -634,7 +634,7 @@ def update_product(current_user, product_id):
     return jsonify({'status': 'success', 'message': 'Product item has been updated'})
 
 
-@app.route('/product/<product_id>', methods=['DELETE'])
+@app.route('/api/product/<product_id>', methods=['DELETE'])
 @token_required
 def delete_product(current_user, product_id):
     product = Product.query.filter_by(id=product_id).first()
@@ -654,7 +654,7 @@ def img_to_base64(filename):
     return img_txt
 
 
-@app.route('/product', methods=['POST'])
+@app.route('/api/product', methods=['POST'])
 @token_required
 def create_product(current_user):
     data = request.form
@@ -695,7 +695,7 @@ def create_product(current_user):
         return jsonify({'status': 'fail', 'message': 'err!'}), 500
 
 
-@app.route('/image', methods=['PUT'])
+@app.route('/api/image', methods=['PUT'])
 @token_required
 def update_product_image(current_user):
     data = request.form
@@ -727,7 +727,7 @@ def update_product_image(current_user):
             print e
 
 
-@app.route('/inbox', methods=['POST'])
+@app.route('/api/inbox', methods=['POST'])
 @token_required
 def create_message(current_user):
     data = request.get_json()
@@ -741,7 +741,7 @@ def create_message(current_user):
     return jsonify({'status': 'success', 'message': 'New message send!'})
 
 
-@app.route('/inbox/user/<user_id>/<message_id>', methods=['PUT'])
+@app.route('/api/inbox/user/<user_id>/<message_id>', methods=['PUT'])
 @token_required
 def update_one_message(current_user, user_id, message_id):
     if current_user.id != user_id:
@@ -760,7 +760,7 @@ def update_one_message(current_user, user_id, message_id):
     return jsonify({'status': 'success', 'message': 'Product item has been updated'})
 
 
-@app.route('/inbox/user/<user_id>/<message_id>', methods=['GET'])
+@app.route('/api/inbox/user/<user_id>/<message_id>', methods=['GET'])
 @token_required
 def get_one_message(current_user, user_id, message_id):
     if current_user.id == user_id:
@@ -785,7 +785,7 @@ def get_one_message(current_user, user_id, message_id):
     return jsonify({'status': 'fail', 'message': 'Error, you are not allowed to query this content.'})
 
 
-@app.route('/inbox/user/<user_id>/<message_id>', methods=['DELETE'])
+@app.route('/api/inbox/user/<user_id>/<message_id>', methods=['DELETE'])
 @token_required
 def delete_one_message(current_user, user_id, message_id):
     if current_user.id != user_id:
@@ -802,7 +802,7 @@ def delete_one_message(current_user, user_id, message_id):
     return jsonify({'status': 'success', 'message': 'The message has been deleted!'}), 204
 
 
-@app.route('/inbox/user/<user_id>', methods=['GET'])
+@app.route('/api/inbox/user/<user_id>', methods=['GET'])
 @token_required
 def get_all_messages_by_user(current_user, user_id):
     if current_user.id == user_id:
@@ -827,7 +827,7 @@ def get_all_messages_by_user(current_user, user_id):
     return jsonify({'status': 'fail', 'message': 'Error, you are not allowed to query this content.'})
 
 
-@app.route('/image/product/<product_id>', methods=['GET'])
+@app.route('/api/image/product/<product_id>', methods=['GET'])
 def get_one_image(product_id):
     images = db.session.query(ProductImage).filter_by(
         product_id=product_id).all()
