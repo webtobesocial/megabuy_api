@@ -24,7 +24,8 @@ app = Flask(__name__)
 photos = UploadSet('photos', IMAGES)
 
 app.config['SECRET_KEY'] = os.environ['SECRET']
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///{}'.format(os.environ['DATABASE_URI'])
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///{}'.format(
+    os.environ['DATABASE_URI'])
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = True
 app.config['DEBUG'] = True
 app.config['WHOOSH_BASE'] = 'whoosh'
@@ -520,7 +521,8 @@ def get_all_products_by_category(category_id):
 
 @app.route('/product/user/<user_id>', methods=['GET'])
 def get_all_products_by_user(user_id):
-    products = db.session.query(Product, ProductCategory, ProductImage, Currency, User).filter(
+    products = db.session.query(func.group_concat(ProductImage.id).label('product_image_id'),
+        Product, ProductCategory, ProductImage, Currency, User).filter(
         Product.category_id == ProductCategory.id).filter(Product.id == ProductImage.product_id).filter(
         Product.user_id == user_id).filter(Product.user_id == User.id).filter(
         Product.currency_id == Currency.id).group_by(Product.id).all()
@@ -532,6 +534,7 @@ def get_all_products_by_user(user_id):
         product_data['name'] = product.Product.name
         product_data['price'] = product.Product.price
         product_data['currency'] = product.Currency.unit_symbol
+        product_data['image_id'] = product.product_image_id
         product_data['thumbnail'] = product.ProductImage.image
         product_data['description'] = product.Product.description
         product_data['category'] = product.ProductCategory.name
@@ -691,6 +694,38 @@ def create_product(current_user):
         return jsonify({'status': 'fail', 'message': 'err!'}), 500
 
 
+@app.route('/image', methods=['PUT'])
+@token_required
+def update_product_image(current_user):
+    data = request.form
+    print data
+
+    product_id = data['product_id']
+
+    for photo in request.files.getlist('image'):
+        product_image_id = str(uuid.uuid4()).split('-')[4]
+        filetype = photo.mimetype.split('/')[1]
+        name = '{}.{}'.format(product_image_id, filetype)
+        path = 'static/img/{}'.format(name)
+        photo.save(path)
+
+        try:
+            with Image.open(path) as image:
+                cover = resizeimage.resize_cover(
+                    image, [800, 500], validate=False)
+                cover.save(path, image.format)
+                db.session.add(
+                    ProductImage(
+                        id=product_image_id, product_id=product_id, image=img_to_base64(path))
+                )
+                db.session.flush()
+                db.session.commit()
+
+                return jsonify({'status': 'ok', 'message': 'image was uploaded'}), 204
+        except Exception as e:
+            print e
+
+
 @app.route('/inbox', methods=['POST'])
 @token_required
 def create_message(current_user):
@@ -712,7 +747,8 @@ def update_one_message(current_user, user_id, message_id):
         return jsonify({'status': 'fail', 'message': 'Error, you are not allowed to do this action.'})
 
     data = request.get_json()
-    message = Inbox.query.filter_by(id=message_id, user_id=current_user.id).first()
+    message = Inbox.query.filter_by(
+        id=message_id, user_id=current_user.id).first()
 
     if not message:
         return jsonify({'status': 'not found', 'message': 'No message with id {} found!'.format(message_id)}), 404
@@ -788,6 +824,20 @@ def get_all_messages_by_user(current_user, user_id):
         return jsonify({'status': 'success', 'messages': output})
 
     return jsonify({'status': 'fail', 'message': 'Error, you are not allowed to query this content.'})
+
+
+@app.route('/image/product/<product_id>', methods=['GET'])
+def get_one_image(product_id):
+    images = db.session.query(ProductImage).filter_by(product_id=product_id).all()
+
+    output = []
+    for image in images:
+        image_data = {}
+        image_data['id'] = image.id
+        image_data['image'] = image.image
+        output.append(image_data)
+
+    return jsonify({'status': 'success', 'images': output})
 
 
 if __name__ == '__main__':
