@@ -306,7 +306,7 @@ def delete_user(current_user, public_id):
     db.session.delete(user)
     db.session.commit()
 
-    return jsonify({'status': 'success', 'message': 'The user has been deleted!'}), 204
+    return jsonify({'status': 'success', 'message': 'The user has been deleted!'})
 
 
 @app.route('/api/logout', methods=['POST'])
@@ -433,7 +433,7 @@ def delete_product_category(current_user, product_category_id):
     db.session.delete(product_category)
     db.session.commit()
 
-    return jsonify({'status': 'success', 'message': 'Product item deleted!'}), 204
+    return jsonify({'status': 'success', 'message': 'Product item deleted!'})
 
 
 @app.route('/api/product-category/<product_category_id>', methods=['PUT'])
@@ -645,7 +645,7 @@ def delete_product(current_user, product_id):
     db.session.delete(product)
     db.session.commit()
 
-    return jsonify({'status': 'success', 'message': 'Product item deleted!'}), 204
+    return jsonify({'status': 'success', 'message': 'Product item deleted!'})
 
 
 def img_to_base64(filename):
@@ -722,7 +722,7 @@ def update_product_image(current_user):
                 db.session.flush()
                 db.session.commit()
 
-                return jsonify({'status': 'ok', 'message': 'image was uploaded'}), 204
+                return jsonify({'status': 'ok', 'message': 'image was uploaded', 'id': product_image_id})
         except Exception as e:
             print e
 
@@ -799,7 +799,7 @@ def delete_one_message(current_user, user_id, message_id):
     db.session.delete(message)
     db.session.commit()
 
-    return jsonify({'status': 'success', 'message': 'The message has been deleted!'}), 204
+    return jsonify({'status': 'success', 'message': 'The message has been deleted!'})
 
 
 @app.route('/api/inbox/user/<user_id>', methods=['GET'])
@@ -825,6 +825,20 @@ def get_all_messages_by_user(current_user, user_id):
         return jsonify({'status': 'success', 'messages': output})
 
     return jsonify({'status': 'fail', 'message': 'Error, you are not allowed to query this content.'})
+
+
+@app.route('/api/image/<image_id>', methods=['DELETE'])
+@token_required
+def delete_one_image(current_user, image_id):
+    image = ProductImage.query.filter_by(id=image_id).first()
+
+    if not image:
+        return jsonify({'status': 'not found', 'message': 'No image found'}), 404
+
+    db.session.delete(image)
+    db.session.commit()
+
+    return jsonify({'status': 'success', 'message': 'The image with the id {} has been deleted!'.format(image_id)})
 
 
 @app.route('/api/image/product/<product_id>', methods=['GET'])
