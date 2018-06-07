@@ -94,6 +94,24 @@ class Product(db.Model):
     user_id = db.Column(db.String(50))
 
 
+class Layout(db.Model):
+    id = db.Column(db.String(50), primary_key=True)
+    created_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    background = db.Column(db.String(10))
+    alert = db.Column(db.String(10))
+    headline = db.Column(db.String(10))
+    warning = db.Column(db.String(10))
+    success = db.Column(db.String(10))
+    teaser = db.Column(db.String(10))
+    button = db.Column(db.String(10))
+    navbar = db.Column(db.String(10))
+    error = db.Column(db.String(10))
+    info = db.Column(db.String(10))
+    link = db.Column(db.String(10))
+    text = db.Column(db.String(10))
+    user_id = db.Column(db.String(50))
+
+
 class ProductImage(db.Model):
     id = db.Column(db.String(50), primary_key=True)
     created_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
@@ -156,6 +174,10 @@ def token_required(f):
     return decorated
 
 
+def create_id():
+    return str(uuid.uuid4()).split('-')[4]
+
+
 @app.route('/api/user', methods=['GET'])
 @token_required
 def get_all_users(current_user):
@@ -214,7 +236,7 @@ def create_user():
     hashed_password = generate_password_hash(data['password'], method='sha256')
 
     try:
-        user_id = str(uuid.uuid4()).split('-')[4]
+        user_id = create_id()
         new_user = User(id=user_id,
                         public_id=user_id,
                         password=hashed_password,
@@ -225,7 +247,7 @@ def create_user():
         db.session.add(new_user)
         db.session.flush()
 
-        address_id = str(uuid.uuid4()).split('-')[4]
+        address_id = create_id()
         new_address = Address(id=address_id, user_id=new_user.id)
         db.session.add(new_address)
         db.session.flush()
@@ -235,7 +257,7 @@ def create_user():
         token = jwt.encode(
             {'public_id': user_id, 'exp': exp}, app.config['SECRET_KEY'])
 
-        token_id = str(uuid.uuid4()).split('-')[4]
+        token_id = create_id()
         new_token = Token(id=token_id, token=token,
                           blacklisted=False, user_id=user_id)
         db.session.add(new_token)
@@ -359,7 +381,7 @@ def login():
         token = jwt.encode({'public_id': user.public_id,
                             'exp': exp}, app.config['SECRET_KEY'])
 
-        token_id = str(uuid.uuid4()).split('-')[4]
+        token_id = create_id()
         new_token = Token(id=token_id, token=token,
                           blacklisted=False, user_id=user.id)
         db.session.add(new_token)
@@ -458,7 +480,7 @@ def update_product_category(current_user, product_category_id):
 @token_required
 def create_product_category(current_user):
     data = request.get_json()
-    product_category_id = str(uuid.uuid4()).split('-')[4]
+    product_category_id = create_id()
     new_product_category = ProductCategory(id=product_category_id,
                                            name=data['name'],
                                            description=data['description'],
@@ -659,10 +681,10 @@ def img_to_base64(filename):
 def create_product(current_user):
     data = request.form
 
-    product_id = str(uuid.uuid4()).split('-')[4]
+    product_id = create_id()
 
     for image in request.files.getlist('image'):
-        product_image_id = str(uuid.uuid4()).split('-')[4]
+        product_image_id = create_id()
         filetype = image.mimetype.split('/')[1]
         name = '{}.{}'.format(product_image_id, filetype)
         path = 'static/img/{}'.format(name)
@@ -704,7 +726,7 @@ def update_product_image(current_user):
     product_id = data['product_id']
 
     for image in request.files.getlist('image'):
-        product_image_id = str(uuid.uuid4()).split('-')[4]
+        product_image_id = create_id()
         filetype = image.mimetype.split('/')[1]
         name = '{}.{}'.format(product_image_id, filetype)
         path = 'static/img/{}'.format(name)
@@ -731,7 +753,7 @@ def update_product_image(current_user):
 @token_required
 def create_message(current_user):
     data = request.get_json()
-    message_id = str(uuid.uuid4()).split('-')[4]
+    message_id = create_id()
     new_message = Inbox(id=message_id, subject=data['subject'], user_id=data['user_id'],
                         parent_id=data['parent_id'], message=data['message'], creator_id=current_user.id)
 
@@ -856,6 +878,77 @@ def get_one_image(product_id):
 
     return jsonify({'status': 'success', 'images': output})
 
+
+@app.route('/api/layout', methods=['GET'])
+def get_layout():
+    layout = Layout.query.first()
+
+    if not layout:
+        return jsonify({'status': 'not found', 'message': 'Layout was not found'}), 404
+
+    layout_data = {}
+    layout_data['id'] = layout.id
+    layout_data['user_id'] = layout.user_id
+    layout_data['background'] = layout.background
+    layout_data['headline'] = layout.headline
+    layout_data['success'] = layout.success
+    layout_data['warning'] = layout.warning
+    layout_data['navbar'] = layout.navbar
+    layout_data['teaser'] = layout.teaser
+    layout_data['button'] = layout.button
+    layout_data['error'] = layout.error
+    layout_data['alert'] = layout.alert
+    layout_data['info'] = layout.info
+    layout_data['link'] = layout.link
+    layout_data['text'] = layout.text
+
+    return jsonify({'status': 'success', 'layout': layout_data})
+
+
+@app.route('/api/layout', methods=['POST'])
+@token_required
+def create_layout(current_user):
+    data = request.get_json()
+    layout_id = create_id()
+    new_layout = Layout(id=layout_id, background=data['background'], user_id=str(current_user.id),
+                        headline=data['headline'], warning=data['warning'],
+                        error=data['error'], success=data['success'], info=data['info'],
+                        teaser=data['teaser'], navbar=data['navbar'], button=data['button'],
+                        link=data['link'], alert=data['alert'], text=data['text'])
+
+
+    db.session.add(new_layout)
+    db.session.commit()
+
+    return jsonify({'status': 'success', 'message': 'New layout was created!'})
+
+
+@app.route('/api/layout/<layout_id>', methods=['PUT'])
+@token_required
+def update_layout(current_user, layout_id):
+    data = request.get_json()
+
+    layout = Layout.query.filter_by(id=layout_id, user_id=str(current_user.id)).first()
+
+    if not layout:
+        return jsonify({'status': 'not found', 'message': 'No layout found'}), 404
+
+    layout.background = data['background']
+    layout.headline = data['headline']
+    layout.success = data['success']
+    layout.warning = data['warning']
+    layout.navbar = data['navbar']
+    layout.teaser = data['teaser']
+    layout.button = data['button']
+    layout.error = data['error']
+    layout.alert = data['alert']
+    layout.info = data['info']
+    layout.link = data['link']
+    layout.text = data['text']
+
+    db.session.commit()
+
+    return jsonify({'status': 'success', 'message': 'Layout has been updated'})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
