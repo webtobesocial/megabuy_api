@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from flask import Flask, request, jsonify, make_response
-from flask.ext.uploads import UploadSet, configure_uploads, IMAGES
+from flask_uploads import UploadSet, configure_uploads, IMAGES
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql import column, func, literal_column, alias
