@@ -2,3 +2,4 @@ whoosh
 static
 *.pyc
 *.db
+env
