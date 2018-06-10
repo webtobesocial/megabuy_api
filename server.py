@@ -1,15 +1,18 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
-from flask import Flask, request, jsonify, make_response
+from flask import Flask, request, jsonify, make_response, url_for
 from flask_uploads import UploadSet, configure_uploads, IMAGES
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql import column, func, literal_column, alias
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
+from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadTimeSignature
 from whoosh.analysis import StemmingAnalyzer
 from whoosh.analysis import SimpleAnalyzer
 from resizeimage import resizeimage
+from flask_mail import Mail, Message
 from PIL import Image
 import flask_whooshalchemy as wa
 import datetime
@@ -31,14 +34,23 @@ app.config['DEBUG'] = True
 app.config['WHOOSH_BASE'] = 'whoosh'
 app.config['WHOOSH_ANALYZER'] = StemmingAnalyzer()
 app.config['UPLOADED_PHOTOS_DEST'] = 'static/img'
+app.config['MAIL_SERVER'] = os.environ['MAIL_SERVER']
+app.config['MAIL_USERNAME'] = os.environ['MAIL_USERNAME']
+app.config['MAIL_PASSWORD'] = os.environ['MAIL_PASSWORD']
+app.config['MAIL_USE_SSL'] = True
+app.config['MAIL_PORT'] = 465
 
 db = SQLAlchemy(app)
 configure_uploads(app, photos)
+mail = Mail(app)
+
+serializer = URLSafeTimedSerializer(os.environ['SECRET'])
 
 
 class User(db.Model):
     id = db.Column(db.String(50), primary_key=True)
     created_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    confirmed = db.Column(db.Boolean, default=False)
     public_id = db.Column(db.String(50), unique=True)
     username = db.Column(db.String(50), unique=True)
     email = db.Column(db.String(50), unique=True)
@@ -195,6 +207,7 @@ def get_all_users(current_user):
     for user in users.items:
         user_data = {}
         user_data['public_id'] = user.public_id
+        user_data['confirmed'] = user.confirmed
         user_data['username'] = user.username
         user_data['website'] = user.website
         user_data['email'] = user.email
@@ -347,12 +360,12 @@ def logout(current_user):
 @app.route('/api/status', methods=['GET'])
 def login_status():
     request_token = request.headers.get('authorization').split(' ')[1]
-    token = db.session.query(Token, User).filter(
+    user = db.session.query(Token, User).filter(
         Token.token == request_token).filter(User.id == Token.user_id).first()
 
     try:
         jwt.decode(request_token, app.config['SECRET_KEY'])
-        return jsonify({'status': 'success', 'message': 'Go ahead you are logged in!', 'user_id': token.User.id, 'name': token.User.name})
+        return jsonify({'status': 'success', 'message': 'You are logged in!', 'confirmed': user.User.confirmed, 'user_id': user.User.id, 'name': user.User.name})
     except AttributeError as e:
         return jsonify({'status': 'internal error', 'message': 'Oooopss, there was an error on our server!'}), 500
     except Exception as e:
@@ -364,16 +377,25 @@ def login():
     auth = request.authorization
 
     if not auth or not auth.username or not auth.password:
-        return make_response(jsonify({'status': 'not authorized', 'message': 'Please provide your login credentials!'}), 401, {'WWW-Authenticate': 'Basic realm="Login required"'})
+        return jsonify({'status': 'not authorized', 'message': 'Please provide your login credentials!'}), 401
 
     try:
         user = User.query.filter_by(email=auth.username).first()
+
+        user_data = {}
+        user_data['public_id'] = user.public_id
+        user_data['confirmed'] = user.confirmed
+        user_data['username'] = user.username
+        user_data['email'] = user.email
+        user_data['admin'] = user.admin
+        user_data['name'] = user.name
+
     except Exception as e:
         print e
         return jsonify({'status': 'internal error', 'message': 'Oooopss, there was an error on our server!'}), 500
 
     if not user:
-        return make_response(jsonify({'status': 'not authorized', 'message': 'Could not verify your credentials!'}), 401, {'WWW-Authenticate': 'Basic realm="Login required"'})
+        return jsonify({'status': 'not authorized', 'message': 'Could not verify your credentials!'}), 401
 
     if check_password_hash(user.password, auth.password):
         exp = datetime.datetime.utcnow() + datetime.timedelta(minutes=30)
@@ -387,9 +409,10 @@ def login():
         db.session.add(new_token)
         db.session.commit()
 
-        return jsonify({'status': 'success', 'admin': user.admin, 'token': token.decode('utf-8'), 'user_id': user.id})
+        print user
+        return jsonify({'status': 'success', 'token': token.decode('utf-8'), 'user': user_data})
 
-    return make_response(jsonify({'status': 'not authorized', 'message': 'Could not verify your credentials!'}), 401, {'WWW-Authenticate': 'Basic realm="Login required"'})
+    return jsonify({'status': 'not authorized', 'message': 'Could not verify your credentials!'}), 401
 
 
 @app.route('/api/currencies', methods=['GET'])
@@ -928,7 +951,7 @@ def create_layout(current_user):
 def update_layout(current_user, layout_id):
     data = request.get_json()
 
-    layout = Layout.query.filter_by(id=layout_id, user_id=str(current_user.id)).first()
+    layout = Layout.query.filter_by(id=layout_id).first()
 
     if not layout:
         return jsonify({'status': 'not found', 'message': 'No layout found'}), 404
@@ -949,6 +972,53 @@ def update_layout(current_user, layout_id):
     db.session.commit()
 
     return jsonify({'status': 'success', 'message': 'Layout has been updated'})
+
+
+@app.route('/api/confirmation', methods=['POST'])
+def create_confirmaton():
+    data = request.get_json()
+
+    email = data['email']
+    user = User.query.filter_by(email=email, confirmed=True).first()
+
+    if not user:
+        try:
+            token = serializer.dumps(email)
+            link = url_for('update_confirmaton', token=token, _external=True)
+            msg = Message('Confirm your Megabuy account', sender='webtobesocial@gmail.com', recipients=[email])
+            msg.body = 'Confirm your email address to complete your Megabuy account.\nIt\'s easy — just click the link below.\n\n{}'.format(link)
+            mail.send(msg)
+            return jsonify({'status': 'success', 'message': 'Confirmation mail has been send to {}'.format(email)})
+        except Exception as e:
+            return e
+
+    return jsonify({'status': 'fail', 'message': 'User is already confirmed'}), 500
+
+
+@app.route('/api/confirmation/<token>', methods=['GET'])
+def update_confirmaton(token):
+    try:
+        email = serializer.loads(token, max_age=60)
+
+    except SignatureExpired as e:
+        return jsonify({'status': 'fail', 'message': 'Signature has expired'}), 419
+
+    except BadTimeSignature as e:
+        return jsonify({'status': 'fail', 'message': 'Bad signature'}), 500
+
+    try:
+        user = User.query.filter_by(email=email).first()
+
+        if not user:
+            return jsonify({'status': 'fail', 'message': 'User not found'}), 404
+
+        user.confirmed = True
+        db.session.commit()
+        return jsonify({'status': 'success', 'message': 'User status confirmed'})
+
+    except Exception as e:
+        return str(e)
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
