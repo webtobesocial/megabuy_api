@@ -17,6 +17,9 @@ Next we add some exports to your environment.
 ```sh
 export SECRET='your secret goes here'
 export DATABASE_URI='your absolute database path'
+export MAIL_SERVER='your smtp server address goes here'
+export MAIL_PASSWORD='your mail password goes here'
+export MAIL_USERNAME='your mail address goes here'
 ```
 
 Then we make sure the port 5000 is not used
