@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from flask import Flask, request, jsonify, make_response, url_for
+from flask import Flask, request, jsonify, make_response
 from flask_uploads import UploadSet, configure_uploads, IMAGES
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import IntegrityError
@@ -190,6 +190,10 @@ def create_id():
     return str(uuid.uuid4()).split('-')[4]
 
 
+def query_user_by_id(user_id):
+    return User.query.filter_by(id=user_id, confirmed=True).first()
+
+
 @app.route('/api/user', methods=['GET'])
 @token_required
 def get_all_users(current_user):
@@ -292,11 +296,12 @@ def create_user():
 @app.route('/api/user/<public_id>', methods=['PUT'])
 @token_required
 def update_user(current_user, public_id):
-    data = request.get_json()
-    user = User.query.filter_by(public_id=public_id).first()
+    user = query_user_by_id(current_user.id)
 
     if not user:
-        return jsonify({'status': 'not found', 'message': 'No user found!'}), 404
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
+    data = request.get_json()
 
     return update_user_query(user, data)
 
@@ -330,6 +335,11 @@ def update_user_query(user, data):
 @app.route('/api/user/<public_id>', methods=['DELETE'])
 @token_required
 def delete_user(current_user, public_id):
+    user = query_user_by_id(current_user.id)
+
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
     if not current_user.admin:
         return jsonify({'status': 'not authorized', 'message': 'Cannot perform that function!'}), 401
 
@@ -382,20 +392,20 @@ def login():
     try:
         user = User.query.filter_by(email=auth.username).first()
 
-        user_data = {}
-        user_data['public_id'] = user.public_id
-        user_data['confirmed'] = user.confirmed
-        user_data['username'] = user.username
-        user_data['email'] = user.email
-        user_data['admin'] = user.admin
-        user_data['name'] = user.name
-
     except Exception as e:
         print e
         return jsonify({'status': 'internal error', 'message': 'Oooopss, there was an error on our server!'}), 500
 
     if not user:
         return jsonify({'status': 'not authorized', 'message': 'Could not verify your credentials!'}), 401
+
+    user_data = {}
+    user_data['public_id'] = user.public_id
+    user_data['confirmed'] = user.confirmed
+    user_data['username'] = user.username
+    user_data['email'] = user.email
+    user_data['admin'] = user.admin
+    user_data['name'] = user.name
 
     if check_password_hash(user.password, auth.password):
         exp = datetime.datetime.utcnow() + datetime.timedelta(minutes=30)
@@ -469,6 +479,11 @@ def get_all_product_categories_by_user(current_user):
 @app.route('/api/product-category/<product_category_id>', methods=['DELETE'])
 @token_required
 def delete_product_category(current_user, product_category_id):
+    user = query_user_by_id(current_user.id)
+
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
     product_category = ProductCategory.query.filter_by(
         id=product_category_id).first()
 
@@ -484,6 +499,11 @@ def delete_product_category(current_user, product_category_id):
 @app.route('/api/product-category/<product_category_id>', methods=['PUT'])
 @token_required
 def update_product_category(current_user, product_category_id):
+    user = query_user_by_id(current_user.id)
+
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
     data = request.get_json()
 
     product_category = ProductCategory.query.filter_by(
@@ -502,6 +522,11 @@ def update_product_category(current_user, product_category_id):
 @app.route('/api/product-category', methods=['POST'])
 @token_required
 def create_product_category(current_user):
+    user = query_user_by_id(current_user.id)
+
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
     data = request.get_json()
     product_category_id = create_id()
     new_product_category = ProductCategory(id=product_category_id,
@@ -661,6 +686,11 @@ def get_one_product(product_id):
 @app.route('/api/product/<product_id>', methods=['PUT'])
 @token_required
 def update_product(current_user, product_id):
+    user = query_user_by_id(current_user.id)
+
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
     data = request.get_json()
 
     product = Product.query.filter_by(
@@ -682,6 +712,11 @@ def update_product(current_user, product_id):
 @app.route('/api/product/<product_id>', methods=['DELETE'])
 @token_required
 def delete_product(current_user, product_id):
+    user = query_user_by_id(current_user.id)
+
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
     product = Product.query.filter_by(id=product_id).first()
 
     if not product:
@@ -702,8 +737,12 @@ def img_to_base64(filename):
 @app.route('/api/product', methods=['POST'])
 @token_required
 def create_product(current_user):
-    data = request.form
+    user = query_user_by_id(current_user.id)
 
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
+    data = request.form
     product_id = create_id()
 
     for image in request.files.getlist('image'):
@@ -743,6 +782,11 @@ def create_product(current_user):
 @app.route('/api/image', methods=['PUT'])
 @token_required
 def update_product_image(current_user):
+    user = query_user_by_id(current_user.id)
+
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
     data = request.form
     print data
 
@@ -775,6 +819,11 @@ def update_product_image(current_user):
 @app.route('/api/inbox', methods=['POST'])
 @token_required
 def create_message(current_user):
+    user = query_user_by_id(current_user.id)
+
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
     data = request.get_json()
     message_id = create_id()
     new_message = Inbox(id=message_id, subject=data['subject'], user_id=data['user_id'],
@@ -789,12 +838,16 @@ def create_message(current_user):
 @app.route('/api/inbox/user/<user_id>/<message_id>', methods=['PUT'])
 @token_required
 def update_one_message(current_user, user_id, message_id):
+    user = query_user_by_id(current_user.id)
+
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
     if current_user.id != user_id:
         return jsonify({'status': 'fail', 'message': 'Error, you are not allowed to do this action.'})
 
     data = request.get_json()
-    message = Inbox.query.filter_by(
-        id=message_id, user_id=current_user.id).first()
+    message = Inbox.query.filter_by(id=message_id, user_id=current_user.id).first()
 
     if not message:
         return jsonify({'status': 'not found', 'message': 'No message with id {} found!'.format(message_id)}), 404
@@ -808,6 +861,11 @@ def update_one_message(current_user, user_id, message_id):
 @app.route('/api/inbox/user/<user_id>/<message_id>', methods=['GET'])
 @token_required
 def get_one_message(current_user, user_id, message_id):
+    user = query_user_by_id(current_user.id)
+
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
     if current_user.id == user_id:
         message = db.session.query(Inbox, User).filter(Inbox.id == message_id).filter(
             Inbox.creator_id == User.id).filter(Inbox.user_id == user_id).first()
@@ -833,6 +891,11 @@ def get_one_message(current_user, user_id, message_id):
 @app.route('/api/inbox/user/<user_id>/<message_id>', methods=['DELETE'])
 @token_required
 def delete_one_message(current_user, user_id, message_id):
+    user = query_user_by_id(current_user.id)
+
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
     if current_user.id != user_id:
         return jsonify({'status': 'fail', 'message': 'Error, you are not allowed to query this content.'})
 
@@ -850,6 +913,11 @@ def delete_one_message(current_user, user_id, message_id):
 @app.route('/api/inbox/user/<user_id>', methods=['GET'])
 @token_required
 def get_all_messages_by_user(current_user, user_id):
+    user = query_user_by_id(current_user.id)
+
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
     if current_user.id == user_id:
         messages = db.session.query(Inbox, User).filter(
             Inbox.creator_id == User.id).filter(Inbox.user_id == user_id).all()
@@ -875,6 +943,11 @@ def get_all_messages_by_user(current_user, user_id):
 @app.route('/api/image/<image_id>', methods=['DELETE'])
 @token_required
 def delete_one_image(current_user, image_id):
+    user = query_user_by_id(current_user.id)
+
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
     image = ProductImage.query.filter_by(id=image_id).first()
 
     if not image:
@@ -931,6 +1004,11 @@ def get_layout():
 @app.route('/api/layout', methods=['POST'])
 @token_required
 def create_layout(current_user):
+    user = query_user_by_id(current_user.id)
+
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
     data = request.get_json()
     layout_id = create_id()
     new_layout = Layout(id=layout_id, background=data['background'], user_id=str(current_user.id),
@@ -949,6 +1027,11 @@ def create_layout(current_user):
 @app.route('/api/layout/<layout_id>', methods=['PUT'])
 @token_required
 def update_layout(current_user, layout_id):
+    user = query_user_by_id(current_user.id)
+
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
     data = request.get_json()
 
     layout = Layout.query.filter_by(id=layout_id).first()
@@ -974,8 +1057,32 @@ def update_layout(current_user, layout_id):
     return jsonify({'status': 'success', 'message': 'Layout has been updated'})
 
 
-@app.route('/api/confirmation', methods=['POST'])
-def create_confirmaton():
+@app.route('/api/confirm/user/<user_id>', methods=['GET'])
+@token_required
+def resend_confirmaton_token(current_user, user_id):
+    if current_user.id != user_id:
+        return jsonify({'status': 'fail', 'message': 'Error, you are not allowed to do this action.'}), 401
+
+    user = User.query.filter_by(id=user_id, confirmed=False).first()
+
+    if user:
+        try:
+            token = serializer.dumps(user.email)
+            link = 'https://webtobesocial.de/confirm/{}'.format(token)
+            msg = Message('Confirm your Megabuy account', sender='webtobesocial@gmail.com', recipients=[user.email])
+            msg.body = 'Confirm your email address to complete your Megabuy account.\nIt\'s easy — just click the link below.\n\n{}'.format(link)
+            mail.send(msg)
+
+            return jsonify({'status': 'success', 'message': 'Confirmation mail has been send to {}'.format(user.email)})
+
+        except Exception as e:
+            return e
+
+    return jsonify({'status': 'fail', 'message': 'User is already confirmed'})
+
+
+@app.route('/api/confirm', methods=['POST'])
+def create_confirmaton_token():
     data = request.get_json()
 
     email = data['email']
@@ -984,7 +1091,7 @@ def create_confirmaton():
     if not user:
         try:
             token = serializer.dumps(email)
-            link = url_for('update_confirmaton', token=token, _external=True)
+            link = 'https://webtobesocial.de/confirm/{}'.format(token)
             msg = Message('Confirm your Megabuy account', sender='webtobesocial@gmail.com', recipients=[email])
             msg.body = 'Confirm your email address to complete your Megabuy account.\nIt\'s easy — just click the link below.\n\n{}'.format(link)
             mail.send(msg)
@@ -992,32 +1099,32 @@ def create_confirmaton():
         except Exception as e:
             return e
 
-    return jsonify({'status': 'fail', 'message': 'User is already confirmed'}), 500
+    return jsonify({'status': 'fail', 'message': 'User is already confirmed'})
 
 
-@app.route('/api/confirmation/<token>', methods=['GET'])
+@app.route('/api/confirm/<token>', methods=['POST'])
 def update_confirmaton(token):
-    try:
-        email = serializer.loads(token, max_age=60)
+    user = User.query.filter_by(email=serializer.loads(token), confirmed=True).first()
 
-    except SignatureExpired as e:
-        return jsonify({'status': 'fail', 'message': 'Signature has expired'}), 419
+    if not user:
+        try:
+            email = serializer.loads(token, max_age=300)
+            user = User.query.filter_by(email=email).first()
 
-    except BadTimeSignature as e:
-        return jsonify({'status': 'fail', 'message': 'Bad signature'}), 500
+            if not user:
+                return jsonify({'status': 'fail', 'message': 'User not found'}), 404
 
-    try:
-        user = User.query.filter_by(email=email).first()
+            user.confirmed = True
+            db.session.commit()
+            return jsonify({'status': 'success', 'message': 'User successfully confirmed'})
 
-        if not user:
-            return jsonify({'status': 'fail', 'message': 'User not found'}), 404
+        except SignatureExpired as e:
+            return jsonify({'status': 'fail', 'message': 'Signature has expired'}), 419
 
-        user.confirmed = True
-        db.session.commit()
-        return jsonify({'status': 'success', 'message': 'User status confirmed'})
+        except BadTimeSignature as e:
+            return jsonify({'status': 'fail', 'message': 'Bad signature'}), 500
 
-    except Exception as e:
-        return str(e)
+    return jsonify({'status': 'success', 'message': 'User is already confirmed'})
 
 
 if __name__ == '__main__':
