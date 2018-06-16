@@ -5,6 +5,7 @@ from flask import Flask, request, jsonify, make_response
 from flask_uploads import UploadSet, configure_uploads, IMAGES
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import or_
 from sqlalchemy.sql import column, func, literal_column, alias
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
@@ -56,9 +57,16 @@ class User(db.Model):
     email = db.Column(db.String(50), unique=True)
     password = db.Column(db.String(80))
     website = db.Column(db.String(80))
+    avatar = db.Column(db.String(50))
     phone = db.Column(db.String(50))
     name = db.Column(db.String(50))
     admin = db.Column(db.Boolean)
+
+
+class UserImage(db.Model):
+    id = db.Column(db.String(50), primary_key=True)
+    created_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    image = db.Column(db.String(50))
 
 
 class Address(db.Model):
@@ -235,6 +243,7 @@ def get_one_user(current_user, public_id):
     user_data['public_id'] = user.public_id
     user_data['username'] = user.username
     user_data['website'] = user.website
+    user_data['avatar'] = user.avatar
     user_data['email'] = user.email
     user_data['phone'] = user.phone
     user_data['admin'] = user.admin
@@ -354,6 +363,31 @@ def delete_user(current_user, public_id):
     return jsonify({'status': 'success', 'message': 'The user has been deleted!'})
 
 
+@app.route('/api/user/image/<user_id>', methods=['PUT'])
+@token_required
+def update_user_image(current_user, user_id):
+    user = query_user_by_id(current_user.id)
+
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
+    data = request.form
+    print data
+
+    for image in request.files.getlist('image'):
+        user_image_id = create_id()
+        filetype = image.mimetype.split('/')[1]
+        name = '{}.{}'.format(user_image_id, filetype)
+        path = 'static/img/{}'.format(name)
+        image.save(path)
+        print path
+
+    user.avatar = path
+    db.session.commit()
+
+    return jsonify({'status': 'success'})
+
+
 @app.route('/api/logout', methods=['POST'])
 @token_required
 def logout(current_user):
@@ -375,7 +409,7 @@ def login_status():
 
     try:
         jwt.decode(request_token, app.config['SECRET_KEY'])
-        return jsonify({'status': 'success', 'message': 'You are logged in!', 'confirmed': user.User.confirmed, 'user_id': user.User.id, 'name': user.User.name})
+        return jsonify({'status': 'success', 'message': 'You are logged in!', 'avatar': user.User.avatar, 'confirmed': user.User.confirmed, 'user_id': user.User.id, 'name': user.User.name})
     except AttributeError as e:
         return jsonify({'status': 'internal error', 'message': 'Oooopss, there was an error on our server!'}), 500
     except Exception as e:
@@ -403,6 +437,7 @@ def login():
     user_data['public_id'] = user.public_id
     user_data['confirmed'] = user.confirmed
     user_data['username'] = user.username
+    user_data['avatar'] = user.avatar
     user_data['email'] = user.email
     user_data['admin'] = user.admin
     user_data['name'] = user.name
@@ -592,7 +627,7 @@ def get_all_products_by_category(category_id):
 
 @app.route('/api/product/user/<user_id>', methods=['GET'])
 def get_all_products_by_user(user_id):
-    products = db.session.query(func.group_concat(ProductImage.id).label('product_image_id'),
+    products = db.session.query(func.group_concat(ProductImage.id).label('user_image_id'),
                                 Product, ProductCategory, ProductImage, Currency, User).filter(
         Product.category_id == ProductCategory.id).filter(Product.id == ProductImage.product_id).filter(
         Product.user_id == user_id).filter(Product.user_id == User.id).filter(
@@ -605,7 +640,6 @@ def get_all_products_by_user(user_id):
         product_data['name'] = product.Product.name
         product_data['price'] = product.Product.price
         product_data['currency'] = product.Currency.unit_symbol
-        product_data['image_id'] = product.product_image_id
         product_data['thumbnail'] = product.ProductImage.image
         product_data['description'] = product.Product.description
         product_data['category'] = product.ProductCategory.name
