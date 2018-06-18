@@ -28,8 +28,7 @@ app = Flask(__name__)
 photos = UploadSet('photos', IMAGES)
 
 app.config['SECRET_KEY'] = os.environ['SECRET']
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///{}'.format(
-    os.environ['DATABASE_URI'])
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URI']
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = True
 app.config['DEBUG'] = True
 app.config['WHOOSH_BASE'] = 'whoosh'
@@ -577,10 +576,11 @@ def create_product_category(current_user):
 
 @app.route('/api/products', methods=['GET'])
 def get_all_products():
-    # filter(ProductImage.product_id == Product.id)
-    products = db.session.query(Product, ProductCategory, ProductImage, Currency, User).filter(
-        Product.category_id == ProductCategory.id).filter(Product.user_id == User.id).filter(
-        ProductImage.product_id == Product.id).group_by(Product.id).filter(Product.currency_id == Currency.id).all()
+    products = db.session.query(Product, ProductImage, ProductCategory, User, Currency).join(
+        ProductImage, Product.id == ProductImage.product_id).join(
+        ProductCategory, Product.category_id == ProductCategory.id).join(
+        Currency, Product.currency_id == Currency.id).join(
+        User, Product.user_id == User.id).group_by(Product.id).all()
 
     output = []
     for product in products:
@@ -593,6 +593,7 @@ def get_all_products():
         product_data['description'] = product.Product.description
         product_data['category'] = product.ProductCategory.name
         product_data['category_id'] = product.ProductCategory.id
+        product_data['currency_id'] = product.Currency.id
         product_data['user_name'] = product.User.name
         product_data['user_id'] = product.User.id
         output.append(product_data)
@@ -602,10 +603,12 @@ def get_all_products():
 
 @app.route('/api/product/category/<category_id>', methods=['GET'])
 def get_all_products_by_category(category_id):
-    products = db.session.query(Product, ProductCategory, ProductImage, Currency, User).filter(
-        Product.category_id == ProductCategory.id).filter(Product.id == ProductImage.product_id).filter(
-        Product.category_id == category_id).filter(Product.user_id == User.id).filter(
-        Product.currency_id == Currency.id).group_by(Product.id).all()
+    products = db.session.query(Product, ProductImage, ProductCategory, User, Currency).join(
+        ProductImage, Product.id == ProductImage.product_id).join(
+        ProductCategory, Product.category_id == ProductCategory.id).join(
+        Currency, Product.currency_id == Currency.id).join(
+        User, Product.user_id == User.id).filter(
+        Product.category_id == category_id).group_by(Product.id).all()
 
     output = []
     for product in products:
@@ -627,11 +630,12 @@ def get_all_products_by_category(category_id):
 
 @app.route('/api/product/user/<user_id>', methods=['GET'])
 def get_all_products_by_user(user_id):
-    products = db.session.query(func.group_concat(ProductImage.id).label('user_image_id'),
-                                Product, ProductCategory, ProductImage, Currency, User).filter(
-        Product.category_id == ProductCategory.id).filter(Product.id == ProductImage.product_id).filter(
-        Product.user_id == user_id).filter(Product.user_id == User.id).filter(
-        Product.currency_id == Currency.id).group_by(Product.id).all()
+    products = db.session.query(Product, ProductImage, ProductCategory, User, Currency).join(
+        ProductImage, Product.id == ProductImage.product_id).join(
+        ProductCategory, Product.category_id == ProductCategory.id).join(
+        Currency, Product.currency_id == Currency.id).join(
+        User, Product.user_id == User.id).filter(
+        User.id == user_id).group_by(Product.id).all()
 
     output = []
     for product in products:
@@ -760,12 +764,6 @@ def delete_product(current_user, product_id):
     db.session.commit()
 
     return jsonify({'status': 'success', 'message': 'Product item deleted!'})
-
-
-def img_to_base64(filename):
-    with open(filename, "rb") as imageFile:
-        img_txt = base64.b64encode(imageFile.read())
-    return img_txt
 
 
 @app.route('/api/product', methods=['POST'])
@@ -900,26 +898,24 @@ def get_one_message(current_user, user_id, message_id):
     if not user:
         return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
 
-    if current_user.id == user_id:
-        message = db.session.query(Inbox, User).filter(Inbox.id == message_id).filter(
-            Inbox.creator_id == User.id).filter(Inbox.user_id == user_id).first()
+    message = db.session.query(Inbox, User).filter(Inbox.id == message_id).filter(
+        Inbox.creator_id == User.id).filter(Inbox.user_id == user_id).first()
 
-        if not message:
-            return jsonify({'status': 'not found', 'message': 'No message found'}), 404
+    if not message:
+        return jsonify({'status': 'not found', 'message': 'No message found'}), 404
 
-        inbox_data = {}
-        inbox_data['id'] = message.Inbox.id
-        inbox_data['read'] = message.Inbox.read
-        inbox_data['created'] = message.Inbox.created_date
-        inbox_data['subject'] = message.Inbox.subject
-        inbox_data['message'] = message.Inbox.message
-        inbox_data['parent_id'] = message.Inbox.parent_id
-        inbox_data['user_name'] = message.User.name
-        inbox_data['user_id'] = message.User.id
+    inbox_data = {}
+    inbox_data['id'] = message.Inbox.id
+    inbox_data['read'] = message.Inbox.read
+    inbox_data['created'] = message.Inbox.created_date
+    inbox_data['subject'] = message.Inbox.subject
+    inbox_data['message'] = message.Inbox.message
+    inbox_data['parent_id'] = message.Inbox.parent_id
+    inbox_data['user_name'] = message.User.name
+    inbox_data['avatar'] = message.User.avatar
+    inbox_data['user_id'] = message.User.id
 
-        return jsonify(inbox_data)
-
-    return jsonify({'status': 'fail', 'message': 'Error, you are not allowed to query this content.'})
+    return jsonify(inbox_data)
 
 
 @app.route('/api/inbox/user/<user_id>/<message_id>', methods=['DELETE'])
@@ -1009,9 +1005,9 @@ def get_one_image(product_id):
     return jsonify({'status': 'success', 'images': output})
 
 
-@app.route('/api/layout', methods=['GET'])
-def get_layout():
-    layout = Layout.query.first()
+@app.route('/api/layout/user/<user_id>', methods=['GET'])
+def get_layout(user_id):
+    layout = Layout.query.filter_by(user_id=user_id).first()
 
     if not layout:
         return jsonify({'status': 'not found', 'message': 'Layout was not found'}), 404
@@ -1055,7 +1051,7 @@ def create_layout(current_user):
     db.session.add(new_layout)
     db.session.commit()
 
-    return jsonify({'status': 'success', 'message': 'New layout was created!'})
+    return jsonify({'status': 'success', 'message': 'New layout with d {} was created!'.format(layout_id), 'id': layout_id})
 
 
 @app.route('/api/layout/<layout_id>', methods=['PUT'])
@@ -1102,7 +1098,7 @@ def resend_confirmaton_token(current_user, user_id):
     if user:
         try:
             token = serializer.dumps(user.email)
-            link = 'https://webtobesocial.de/confirm/{}'.format(token)
+            link = 'https://juuwl.de/confirm/{}'.format(token)
             msg = Message('Confirm your Megabuy account', sender='webtobesocial@gmail.com', recipients=[user.email])
             msg.body = 'Confirm your email address to complete your Megabuy account.\nIt\'s easy — just click the link below.\n\n{}'.format(link)
             mail.send(msg)
