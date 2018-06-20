@@ -75,12 +75,14 @@ class UserImage(db.Model):
 class Address(db.Model):
     id = db.Column(db.String(50), primary_key=True)
     created_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
-    city = db.Column(db.String(50))
+    firstname = db.Column(db.String(50))
+    lastname = db.Column(db.String(50))
     street = db.Column(db.String(150))
     zipcode = db.Column(db.String(5))
     country = db.Column(db.String(50))
     suite = db.Column(db.String(50))
     state = db.Column(db.String(50))
+    city = db.Column(db.String(50))
     user_id = db.Column(db.String(50))
 
 
@@ -1220,21 +1222,50 @@ def create_address(current_user):
         return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
 
     data = request.get_json()
-    print data
-
     address_id = create_id()
-    new_address = Order(id=address_id, street=data['addressDefault'],
-        zipcode=data['zipCode'], country=data['CountryName'],
-        state=data['stateName'], user_id=str(current_user.id))
+
+    new_address = Address(id=address_id, firstname=data['firstname'], lastname=data['lastname'], street=data['street'],
+        zipcode=data['zipcode'], country=data['country'], city=data['city'], state=data['state'], user_id=str(current_user.id))
+
+    user = User.query.filter_by(id=str(current_user.id)).first()
+
+    user.address_id = address_id
+    db.session.flush()
 
     db.session.add(new_address)
     db.session.commit()
 
-    return jsonify({'status': 'success', 'message': 'New address with d {} was created!'.format(address_id), 'id': address_id})
+    return jsonify({'status': 'success', 'message': 'New address with id {} was created!'.format(address_id), 'id': address_id})
 
 
+@app.route('/api/address/<address_id>', methods=['PUT'])
+@token_required
+def update_address(current_user, address_id):
+    user = query_user_by_id(current_user.id)
 
-@app.route('/api/checkout', methods=['POST'])
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
+    data = request.get_json()
+    address = Address.query.filter_by(id=address_id).filter_by(user_id=str(current_user.id)).first()
+
+    if not address:
+        return jsonify({'status': 'not found'}), 404
+
+    address.firstname = data['firstname']
+    address.lastname =data['lastname']
+    address.zipcode = data['zipcode']
+    address.country = data['country']
+    address.street = data['street']
+    address.state = data['state']
+    address.city = data['city']
+
+    db.session.commit()
+
+    return jsonify({'status': 'success', 'message': 'Updated address with id {}!'.format(address_id), 'id': address_id})
+
+
+@app.route('/api/order', methods=['POST'])
 @token_required
 def create_order(current_user):
     user = query_user_by_id(current_user.id)
@@ -1243,36 +1274,49 @@ def create_order(current_user):
         return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
 
     data = request.get_json()
-    print data
-
-    """
-    class Payment(db.Model):
-        id = db.Column(db.String(50), primary_key=True)
-        created_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
-        status = db.Column(db.String(50))
-        product_id = db.Column(db.String(50))
-
-
-    class Order(db.Model):
-        id = db.Column(db.String(50), primary_key=True)
-        created_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
-        status = db.Column(db.String(50))
-        user_id = db.Column(db.String(50))
-        product_id = db.Column(db.String(50))
-        address_id = db.Column(db.String(50))
-    """
 
     order_id = create_id()
-    new_order = Order(id=order_id)
+    new_order = Order(id=order_id, status='pending', user_id=data['user_id'], product_id=data['product_id'], address_id=data['address_id'])
 
     db.session.add(new_order)
     db.session.commit()
 
-    return jsonify({'status': 'success', 'message': 'New order with d {} was created!'.format(order_id), 'id': order_id})
+    return jsonify({'status': 'success', 'message': 'New order with id {} was created!'.format(order_id), 'id': order_id})
 
 
+@app.route('/api/order/<order_id>', methods=['GET'])
+@token_required
+def get_order(current_user, order_id):
+    order = db.session.query(Order, Product, User, Address, Currency,
+        func.group_concat(ProductImage.image).label('product_images')).join(
+        User, Order.user_id == User.id).join(
+        Product, Order.product_id == Product.id).join(
+        Currency, Product.currency_id == Currency.id).join(
+        ProductImage, ProductImage.product_id == Product.id).join(
+        Address, Order.address_id == Address.id).filter(
+        Order.id == order_id).group_by(Product.id, ProductImage.id).first()
 
+    if not order:
+        return jsonify({'status': 'not found', 'message': 'Address was not found'}), 404
 
+    order_data = {}
+    order_data['id'] = order.Address.id
+    order_data['name'] = order.Product.name
+    order_data['price'] = str(order.Product.price)
+    order_data['condition'] = order.Product.condition
+    order_data['currency'] = order.Currency.unit_symbol
+    order_data['thumbnail'] = order.product_images
+    order_data['description'] = order.Product.description
+    order_data['shipping_fee'] = str(order.Product.shipping_fee)
+    order_data['total_amount'] = str(order.Product.price + order.Product.shipping_fee)
+    order_data['created_date'] = order.Order.created_date
+    order_data['street'] = order.Address.street
+    order_data['city'] = order.Address.city
+    order_data['zipcode'] = order.Address.zipcode
+    order_data['firstname'] = order.Address.firstname
+    order_data['lastname'] = order.Address.lastname
+
+    return jsonify({'status': 'success', 'order': order_data})
 
 
 if __name__ == '__main__':
