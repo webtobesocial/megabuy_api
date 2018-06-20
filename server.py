@@ -54,6 +54,10 @@ class User(db.Model):
     public_id = db.Column(db.String(50), unique=True)
     username = db.Column(db.String(50), unique=True)
     email = db.Column(db.String(50), unique=True)
+    address_id = db.Column(db.String(50))
+    firstname = db.Column(db.String(50))
+    middlename = db.Column(db.String(50))
+    lastname = db.Column(db.String(50))
     password = db.Column(db.String(80))
     website = db.Column(db.String(80))
     avatar = db.Column(db.String(50))
@@ -72,11 +76,28 @@ class Address(db.Model):
     id = db.Column(db.String(50), primary_key=True)
     created_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
     city = db.Column(db.String(50))
-    street = db.Column(db.String(50))
-    zipcode = db.Column(db.String(50))
+    street = db.Column(db.String(150))
+    zipcode = db.Column(db.String(5))
     country = db.Column(db.String(50))
     suite = db.Column(db.String(50))
+    state = db.Column(db.String(50))
     user_id = db.Column(db.String(50))
+
+
+class Payment(db.Model):
+    id = db.Column(db.String(50), primary_key=True)
+    created_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    status = db.Column(db.String(50))
+    product_id = db.Column(db.String(50))
+
+
+class Order(db.Model):
+    id = db.Column(db.String(50), primary_key=True)
+    created_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    status = db.Column(db.String(50))
+    user_id = db.Column(db.String(50))
+    product_id = db.Column(db.String(50))
+    address_id = db.Column(db.String(50))
 
 
 class Currency(db.Model):
@@ -241,6 +262,8 @@ def get_one_user(current_user, public_id):
     user_data = {}
     user_data['public_id'] = user.public_id
     user_data['username'] = user.username
+    user_data['firstname'] = user.firstname
+    user_data['lastname'] = user.lastname
     user_data['website'] = user.website
     user_data['avatar'] = user.avatar
     user_data['email'] = user.email
@@ -262,29 +285,27 @@ def create_user():
 
     try:
         user_id = create_id()
-        new_user = User(id=user_id,
-                        public_id=user_id,
-                        password=hashed_password,
-                        email=data['email'],
-                        name=data['name'],
-                        admin=False)
-
-        db.session.add(new_user)
-        db.session.flush()
-
         address_id = create_id()
-        new_address = Address(id=address_id, user_id=new_user.id)
-        db.session.add(new_address)
-        db.session.flush()
+        token_id = create_id()
+
+        new_address = Address(id=address_id, user_id=user_id)
+
+        new_user = User(id=user_id, public_id=user_id, password=hashed_password,
+            email=data['email'], address_id=address_id, name=data['name'], admin=False)
 
         exp = datetime.datetime.utcnow() + datetime.timedelta(minutes=30)
 
         token = jwt.encode(
             {'public_id': user_id, 'exp': exp}, app.config['SECRET_KEY'])
 
-        token_id = create_id()
-        new_token = Token(id=token_id, token=token,
-                          blacklisted=False, user_id=user_id)
+        new_token = Token(id=token_id, token=token, blacklisted=False, user_id=user_id)
+
+        db.session.add(new_address)
+        db.session.flush()
+
+        db.session.add(new_user)
+        db.session.flush()
+
         db.session.add(new_token)
         db.session.commit()
 
@@ -316,11 +337,12 @@ def update_user(current_user, public_id):
 
 def update_user_query(user, data):
     try:
-        user.name = data['name']
-        user.email = data['email']
+        user.firstname = data['firstname']
+        user.lastname = data['lastname']
         user.username = data['username']
         user.website = data['website']
         user.phone = data['phone']
+        user.email = data['email']
         db.session.flush()
     except KeyError as e:
         err_column = str(e).replace('\'', '')
@@ -408,7 +430,7 @@ def login_status():
 
     try:
         jwt.decode(request_token, app.config['SECRET_KEY'])
-        return jsonify({'status': 'success', 'message': 'You are logged in!', 'avatar': user.User.avatar, 'confirmed': user.User.confirmed, 'user_id': user.User.id, 'name': user.User.name})
+        return jsonify({'status': 'success', 'message': 'You are logged in!', 'address_id': user.User.address_id, 'avatar': user.User.avatar, 'firstname': user.User.firstname, 'lastname': user.User.lastname, 'confirmed': user.User.confirmed, 'user_id': user.User.id, 'name': user.User.name})
     except AttributeError as e:
         return jsonify({'status': 'internal error', 'message': 'Oooopss, there was an error on our server!'}), 500
     except Exception as e:
@@ -435,7 +457,10 @@ def login():
     user_data = {}
     user_data['public_id'] = user.public_id
     user_data['confirmed'] = user.confirmed
+    user_data['address_id'] = user.address_id
     user_data['username'] = user.username
+    user_data['firstname'] = user.firstname
+    user_data['lastname'] = user.lastname
     user_data['avatar'] = user.avatar
     user_data['email'] = user.email
     user_data['admin'] = user.admin
@@ -1121,7 +1146,7 @@ def create_confirmaton_token():
     if not user:
         try:
             token = serializer.dumps(email)
-            link = 'https://webtobesocial.de/confirm/{}'.format(token)
+            link = 'https://juuwl.de/confirm/{}'.format(token)
             msg = Message('Confirm your Megabuy account', sender='webtobesocial@gmail.com', recipients=[email])
             msg.body = 'Confirm your email address to complete your Megabuy account.\nIt\'s easy — just click the link below.\n\n{}'.format(link)
             mail.send(msg)
@@ -1155,6 +1180,94 @@ def update_confirmaton(token):
             return jsonify({'status': 'fail', 'message': 'Bad signature'}), 500
 
     return jsonify({'status': 'success', 'message': 'User is already confirmed'})
+
+
+
+# TODO: make request safe for non authorized users
+@app.route('/api/address/<address_id>', methods=['GET'])
+@token_required
+def get_address(current_user, address_id):
+    address = db.session.query(Address, User).join(User, Address.user_id == User.id).filter(Address.id == address_id).first()
+
+    if not address:
+        return jsonify({'status': 'not found', 'message': 'Address was not found'}), 404
+
+    address_data = {}
+    address_data['id'] = address.Address.id
+    address_data['firstname'] = address.User.firstname
+    address_data['lastname'] = address.User.lastname
+    address_data['email'] = address.User.email
+    address_data['street'] = address.Address.street
+    address_data['city'] = address.Address.city
+    address_data['zipcode'] = address.Address.zipcode
+    address_data['country'] = address.Address.country
+    address_data['state'] = address.Address.state
+
+    return jsonify({'status': 'success', 'address': address_data})
+
+
+@app.route('/api/address', methods=['POST'])
+@token_required
+def create_address(current_user):
+    user = query_user_by_id(current_user.id)
+
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
+    data = request.get_json()
+    print data
+
+    address_id = create_id()
+    new_address = Order(id=address_id, street=data['addressDefault'],
+        zipcode=data['zipCode'], country=data['CountryName'],
+        state=data['stateName'], user_id=str(current_user.id))
+
+    db.session.add(new_address)
+    db.session.commit()
+
+    return jsonify({'status': 'success', 'message': 'New address with d {} was created!'.format(address_id), 'id': address_id})
+
+
+
+@app.route('/api/checkout', methods=['POST'])
+@token_required
+def create_order(current_user):
+    user = query_user_by_id(current_user.id)
+
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
+    data = request.get_json()
+    print data
+
+    """
+    class Payment(db.Model):
+        id = db.Column(db.String(50), primary_key=True)
+        created_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+        status = db.Column(db.String(50))
+        product_id = db.Column(db.String(50))
+
+
+    class Order(db.Model):
+        id = db.Column(db.String(50), primary_key=True)
+        created_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+        status = db.Column(db.String(50))
+        user_id = db.Column(db.String(50))
+        product_id = db.Column(db.String(50))
+        address_id = db.Column(db.String(50))
+    """
+
+    order_id = create_id()
+    new_order = Order(id=order_id)
+
+    db.session.add(new_order)
+    db.session.commit()
+
+    return jsonify({'status': 'success', 'message': 'New order with d {} was created!'.format(order_id), 'id': order_id})
+
+
+
+
 
 
 if __name__ == '__main__':
