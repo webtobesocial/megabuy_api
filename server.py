@@ -125,13 +125,15 @@ class Product(db.Model):
 
     id = db.Column(db.String(50), primary_key=True)
     created_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
-    name = db.Column(db.String(70))
-    price = db.Column(db.String(30))
+    shipping_fee = db.Column(db.Numeric, default=0)
+    price = db.Column(db.Numeric, default=0)
+    condition = db.Column(db.String(80))
     thumbnail = db.Column(db.String(500))
     description = db.Column(db.String(500))
     category_id = db.Column(db.String(50))
     currency_id = db.Column(db.String(30))
     user_id = db.Column(db.String(50))
+    name = db.Column(db.String(70))
 
 
 class Layout(db.Model):
@@ -612,7 +614,7 @@ def get_all_products():
         product_data = {}
         product_data['id'] = product.Product.id
         product_data['name'] = product.Product.name
-        product_data['price'] = product.Product.price
+        product_data['price'] = str(product.Product.price)
         product_data['currency'] = product.Currency.unit_symbol
         product_data['thumbnail'] = product.ProductImage.image
         product_data['description'] = product.Product.description
@@ -640,7 +642,7 @@ def get_all_products_by_category(category_id):
         product_data = {}
         product_data['id'] = product.Product.id
         product_data['name'] = product.Product.name
-        product_data['price'] = product.Product.price
+        product_data['price'] = str(product.Product.price)
         product_data['currency'] = product.Currency.unit_symbol
         product_data['thumbnail'] = product.ProductImage.image
         product_data['description'] = product.Product.description
@@ -667,7 +669,7 @@ def get_all_products_by_user(user_id):
         product_data = {}
         product_data['id'] = product.Product.id
         product_data['name'] = product.Product.name
-        product_data['price'] = product.Product.price
+        product_data['price'] = str(product.Product.price)
         product_data['currency'] = product.Currency.unit_symbol
         product_data['thumbnail'] = product.ProductImage.image
         product_data['description'] = product.Product.description
@@ -723,7 +725,7 @@ def get_all_products_by_query(search_query):
 @app.route('/api/product/<product_id>', methods=['GET'])
 def get_one_product(product_id):
     product = db.session.query(func.group_concat(ProductImage.image).label('product_images'),
-                               Product, ProductCategory, ProductImage, Currency, User).filter(Product.user_id == User.id).filter(
+        Product, ProductCategory, ProductImage, Currency, User).filter(Product.user_id == User.id).filter(
         ProductImage.product_id == Product.id).filter(Product.category_id == ProductCategory.id).filter(
         Product.id == product_id).filter(Product.currency_id == Currency.id).first()
 
@@ -733,9 +735,12 @@ def get_one_product(product_id):
     product_data = {}
     product_data['id'] = product.Product.id
     product_data['name'] = product.Product.name
-    product_data['price'] = product.Product.price
+    product_data['price'] = str(product.Product.price)
     product_data['currency'] = product.Currency.unit_symbol
     product_data['thumbnail'] = product.Product.thumbnail
+    product_data['condition'] = product.Product.condition
+    product_data['shipping_fee'] = str(product.Product.shipping_fee)
+    product_data['total_amount'] = str(product.Product.price + product.Product.shipping_fee)
     product_data['description'] = product.Product.description
     product_data['category'] = product.ProductCategory.name
     product_data['category_id'] = product.ProductCategory.id
