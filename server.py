@@ -1319,5 +1319,43 @@ def get_order(current_user, order_id):
     return jsonify({'status': 'success', 'order': order_data})
 
 
+
+@app.route('/api/order/user/<user_id>', methods=['GET'])
+@token_required
+def get_all_order_by_user(current_user, user_id):
+    orders = db.session.query(Order, Product, User, Currency, Address, ProductImage).join(
+        User, Order.user_id == User.id).join(
+        Address, Order.address_id == Address.id).join(
+        Product, Order.product_id == Product.id).join(
+        Currency, Product.currency_id == Currency.id).join(
+        ProductImage, ProductImage.product_id == Product.id).filter(
+        Order.user_id == user_id).group_by(Order.id).order_by(Order.created_date.desc()).all()
+
+    if not orders:
+        return jsonify({'status': 'not found', 'message': 'No order was found'}), 404
+
+    output = []
+    for order in orders:
+        order_data = {}
+        order_data['id'] = order.Order.id
+        order_data['name'] = order.Product.name
+        order_data['price'] = str(order.Product.price)
+        order_data['condition'] = order.Product.condition
+        order_data['currency'] = order.Currency.unit_symbol
+        order_data['thumbnail'] = order.ProductImage.image
+        order_data['description'] = order.Product.description
+        order_data['shipping_fee'] = str(order.Product.shipping_fee)
+        order_data['total_amount'] = str(order.Product.price + order.Product.shipping_fee)
+        order_data['created_date'] = order.Order.created_date
+        order_data['street'] = order.Address.street
+        order_data['city'] = order.Address.city
+        order_data['zipcode'] = order.Address.zipcode
+        order_data['firstname'] = order.Address.firstname
+        order_data['lastname'] = order.Address.lastname
+        output.append(order_data)
+
+    return jsonify({'status': 'success', 'orders': output})
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
