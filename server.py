@@ -130,11 +130,11 @@ class Product(db.Model):
     created_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
     shipping_fee = db.Column(db.Numeric, default=0)
     price = db.Column(db.Numeric, default=0)
-    condition = db.Column(db.String(80))
-    thumbnail = db.Column(db.String(500))
+    condition_id = db.Column(db.String(50))
     description = db.Column(db.String(500))
     category_id = db.Column(db.String(50))
     currency_id = db.Column(db.String(30))
+    thumbnail = db.Column(db.String(500))
     user_id = db.Column(db.String(50))
     status = db.Column(db.String(50))
     name = db.Column(db.String(70))
@@ -167,6 +167,14 @@ class ProductImage(db.Model):
 
 
 class ProductCategory(db.Model):
+    id = db.Column(db.String(50), primary_key=True)
+    created_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    name = db.Column(db.String(50))
+    description = db.Column(db.String(500))
+    user_id = db.Column(db.String(50))
+
+
+class ProductCondition(db.Model):
     id = db.Column(db.String(50), primary_key=True)
     created_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
     name = db.Column(db.String(50))
@@ -509,7 +517,7 @@ def get_all_currencies():
 @app.route('/api/product-categories', methods=['GET'])
 def get_all_product_categories():
     product_categories = ProductCategory.query.order_by(
-        ProductCategory.user_id.desc()).all()
+        ProductCategory.name.desc()).all()
     output = []
 
     for product_category in product_categories:
@@ -728,10 +736,14 @@ def get_all_products_by_query(search_query):
 
 @app.route('/api/product/<product_id>', methods=['GET'])
 def get_one_product(product_id):
-    product = db.session.query(func.group_concat(ProductImage.image).label('product_images'),
-        Product, ProductCategory, ProductImage, Currency, User).filter(Product.user_id == User.id).filter(
-        ProductImage.product_id == Product.id).filter(Product.category_id == ProductCategory.id).filter(
-        Product.id == product_id).filter(Product.currency_id == Currency.id).first()
+    product = db.session.query(Product, Currency, User, ProductCategory, ProductImage, ProductCondition,
+        func.group_concat(ProductImage.image).label('product_images')).join(
+        ProductCondition, ProductCondition.id == Product.condition_id).join(
+        ProductCategory, Product.category_id == ProductCategory.id).join(
+        ProductImage, ProductImage.product_id == Product.id).join(
+        Currency, Product.currency_id == Currency.id).join(
+        User, Product.user_id == User.id).filter(
+        Product.id == product_id).first()
 
     if not product:
         return jsonify({'status': 'not found', 'message': 'No product found'}), 404
@@ -742,7 +754,7 @@ def get_one_product(product_id):
     product_data['price'] = str(product.Product.price)
     product_data['currency'] = product.Currency.unit_symbol
     product_data['thumbnail'] = product.Product.thumbnail
-    product_data['condition'] = product.Product.condition
+    product_data['condition'] = product.ProductCondition.name
     product_data['shipping_fee'] = str(product.Product.shipping_fee)
     product_data['total_amount'] = str(product.Product.price + product.Product.shipping_fee)
     product_data['description'] = product.Product.description
@@ -835,8 +847,8 @@ def create_product(current_user):
     try:
         db.session.add(
             Product(id=product_id, name=data['name'], price=data['price'], description=data['description'],
-                    category_id=data['category_id'], currency_id=data['currency_id'], status='new',
-                    condition='good condition', shipping_fee=data['shipping_fee'], user_id=str(current_user.id))
+                category_id=data['category_id'], currency_id=data['currency_id'], status='new',
+                condition_id=data['condition_id'], shipping_fee=data['shipping_fee'], user_id=str(current_user.id))
         )
         db.session.flush()
         db.session.commit()
@@ -894,7 +906,7 @@ def create_message(current_user):
     data = request.get_json()
     message_id = create_id()
     new_message = Inbox(id=message_id, subject=data['subject'], user_id=data['user_id'],
-                        parent_id=data['parent_id'], message=data['message'], creator_id=current_user.id)
+        parent_id=data['parent_id'], message=data['message'], creator_id=current_user.id)
 
     db.session.add(new_message)
     db.session.commit()
@@ -1298,11 +1310,12 @@ def create_order(current_user):
 @app.route('/api/order/<order_id>', methods=['GET'])
 @token_required
 def get_order(current_user, order_id):
-    order = db.session.query(Order, Product, User, Address, Currency,
+    order = db.session.query(Order, Product, User, Address, Currency, ProductCondition,
         func.group_concat(ProductImage.image).label('product_images')).join(
         User, Order.user_id == User.id).join(
         Product, Order.product_id == Product.id).join(
         Currency, Product.currency_id == Currency.id).join(
+        ProductCondition, Product.condition_id == ProductCondition.id).join(
         ProductImage, ProductImage.product_id == Product.id).join(
         Address, Order.address_id == Address.id).filter(
         Order.id == order_id).group_by(Product.id, ProductImage.id).first()
@@ -1314,7 +1327,7 @@ def get_order(current_user, order_id):
     order_data['id'] = order.Address.id
     order_data['name'] = order.Product.name
     order_data['price'] = str(order.Product.price)
-    order_data['condition'] = order.Product.condition
+    order_data['condition'] = order.ProductCondition.name
     order_data['currency'] = order.Currency.unit_symbol
     order_data['thumbnail'] = order.product_images
     order_data['description'] = order.Product.description
@@ -1334,10 +1347,11 @@ def get_order(current_user, order_id):
 @app.route('/api/order/user/<user_id>', methods=['GET'])
 @token_required
 def get_all_order_by_user(current_user, user_id):
-    orders = db.session.query(Order, Product, User, Currency, Address, ProductImage).join(
+    orders = db.session.query(Order, Product, User, Currency, Address, ProductImage, ProductCondition).join(
         User, Order.user_id == User.id).join(
         Address, Order.address_id == Address.id).join(
         Product, Order.product_id == Product.id).join(
+        ProductCondition, Product.condition_id == ProductCondition.id).join(
         Currency, Product.currency_id == Currency.id).join(
         ProductImage, ProductImage.product_id == Product.id).filter(
         Order.visible == True).filter(Order.user_id == user_id).group_by(
@@ -1352,7 +1366,7 @@ def get_all_order_by_user(current_user, user_id):
         order_data['id'] = order.Order.id
         order_data['name'] = order.Product.name
         order_data['price'] = str(order.Product.price)
-        order_data['condition'] = order.Product.condition
+        order_data['condition'] = order.ProductCondition.name
         order_data['currency'] = order.Currency.unit_symbol
         order_data['thumbnail'] = order.ProductImage.image
         order_data['description'] = order.Product.description
@@ -1386,6 +1400,41 @@ def update_order(current_user, order_id):
     db.session.commit()
 
     return jsonify({'status': 'success', 'message': 'Updated order with id {}!'.format(order_id), 'id': order_id})
+
+
+@app.route('/api/conditions', methods=['GET'])
+def get_all_conditions():
+    conditions = ProductCondition.query.all()
+
+    output = []
+    for condition in conditions:
+        condition_data = {}
+        condition_data['id'] = condition.id
+        condition_data['name'] = condition.name
+        condition_data['description'] = condition.description
+        condition_data['user_id'] = condition.user_id
+        output.append(condition_data)
+
+    return jsonify({'status': 'success', 'conditions': output})
+
+
+@app.route('/api/condition', methods=['POST'])
+@token_required
+def create_condition(current_user):
+    user = query_user_by_id(current_user.id)
+
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
+    data = request.get_json()
+    condition_id = create_id()
+    new_condition = ProductCondition(id=condition_id, name=data['name'],
+        description=data['description'], user_id=current_user.id)
+
+    db.session.add(new_condition)
+    db.session.commit()
+
+    return jsonify({'status': 'success', 'message': 'New condition added!'})
 
 
 if __name__ == '__main__':
