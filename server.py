@@ -96,10 +96,11 @@ class Payment(db.Model):
 class Order(db.Model):
     id = db.Column(db.String(50), primary_key=True)
     created_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
-    status = db.Column(db.String(50))
-    user_id = db.Column(db.String(50))
+    visible = db.Column(db.Boolean, default=True)
     product_id = db.Column(db.String(50))
     address_id = db.Column(db.String(50))
+    user_id = db.Column(db.String(50))
+    status = db.Column(db.String(50))
 
 
 class Currency(db.Model):
@@ -135,6 +136,7 @@ class Product(db.Model):
     category_id = db.Column(db.String(50))
     currency_id = db.Column(db.String(30))
     user_id = db.Column(db.String(50))
+    status = db.Column(db.String(50))
     name = db.Column(db.String(70))
 
 
@@ -609,7 +611,7 @@ def get_all_products():
         ProductImage, Product.id == ProductImage.product_id).join(
         ProductCategory, Product.category_id == ProductCategory.id).join(
         Currency, Product.currency_id == Currency.id).join(
-        User, Product.user_id == User.id).group_by(Product.id).all()
+        User, Product.user_id == User.id).filter(Product.status != 'sold').group_by(Product.id).all()
 
     output = []
     for product in products:
@@ -637,7 +639,7 @@ def get_all_products_by_category(category_id):
         ProductCategory, Product.category_id == ProductCategory.id).join(
         Currency, Product.currency_id == Currency.id).join(
         User, Product.user_id == User.id).filter(
-        Product.category_id == category_id).group_by(Product.id).all()
+        Product.category_id == category_id).filter(Product.status != 'sold').group_by(Product.id).all()
 
     output = []
     for product in products:
@@ -664,7 +666,7 @@ def get_all_products_by_user(user_id):
         ProductCategory, Product.category_id == ProductCategory.id).join(
         Currency, Product.currency_id == Currency.id).join(
         User, Product.user_id == User.id).filter(
-        User.id == user_id).group_by(Product.id).all()
+        User.id == user_id).group_by(Product.id).filter(Product.status != 'sold').all()
 
     output = []
     for product in products:
@@ -710,7 +712,7 @@ def get_all_products_by_query(search_query):
         product_data = {}
         product_data['id'] = product.id
         product_data['name'] = product.name
-        product_data['price'] = product.price
+        product_data['price'] = str(product.price)
         product_data['currency'] = get_currency_unit(product.currency_id)
         product_data['thumbnail'] = get_product_image(product.id)
         product_data['description'] = product.description
@@ -833,7 +835,8 @@ def create_product(current_user):
     try:
         db.session.add(
             Product(id=product_id, name=data['name'], price=data['price'], description=data['description'],
-                    category_id=data['category_id'], currency_id=data['currency_id'], user_id=str(current_user.id))
+                    category_id=data['category_id'], currency_id=data['currency_id'], status='new',
+                    condition='good condition', shipping_fee=data['shipping_fee'], user_id=str(current_user.id))
         )
         db.session.flush()
         db.session.commit()
@@ -1275,6 +1278,14 @@ def create_order(current_user):
 
     data = request.get_json()
 
+    product = Product.query.filter_by(id=data['product_id']).first()
+
+    if not product:
+        return jsonify({'status': 'fail', 'message': 'Product was not found!'}), 404
+
+    product.status = 'sold'
+    db.session.flush()
+
     order_id = create_id()
     new_order = Order(id=order_id, status='pending', user_id=data['user_id'], product_id=data['product_id'], address_id=data['address_id'])
 
@@ -1329,7 +1340,8 @@ def get_all_order_by_user(current_user, user_id):
         Product, Order.product_id == Product.id).join(
         Currency, Product.currency_id == Currency.id).join(
         ProductImage, ProductImage.product_id == Product.id).filter(
-        Order.user_id == user_id).group_by(Order.id).order_by(Order.created_date.desc()).all()
+        Order.visible == True).filter(Order.user_id == user_id).group_by(
+        Order.id).order_by(Order.created_date.desc()).all()
 
     if not orders:
         return jsonify({'status': 'not found', 'message': 'No order was found'}), 404
@@ -1355,6 +1367,25 @@ def get_all_order_by_user(current_user, user_id):
         output.append(order_data)
 
     return jsonify({'status': 'success', 'orders': output})
+
+
+@app.route('/api/order/<order_id>', methods=['PUT'])
+@token_required
+def update_order(current_user, order_id):
+    user = query_user_by_id(current_user.id)
+
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
+    order = Order.query.filter_by(id=order_id).filter_by(user_id=str(current_user.id)).first()
+
+    if not order:
+        return jsonify({'status': 'Order not found'}), 404
+
+    order.visible = False
+    db.session.commit()
+
+    return jsonify({'status': 'success', 'message': 'Updated order with id {}!'.format(order_id), 'id': order_id})
 
 
 if __name__ == '__main__':
