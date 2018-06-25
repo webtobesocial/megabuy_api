@@ -144,11 +144,10 @@ class Product(db.Model):
     description = db.Column(db.String(500))
     category_id = db.Column(db.String(50))
     currency_id = db.Column(db.String(30))
+    address_id = db.Column(db.String(50))
     thumbnail = db.Column(db.String(500))
     user_id = db.Column(db.String(50))
     status = db.Column(db.String(50))
-    lat = db.Column(db.Numeric(15,13), nullable=False)
-    lng = db.Column(db.Numeric(15,13), nullable=False)
     name = db.Column(db.String(70))
 
 
@@ -700,8 +699,9 @@ def get_all_products_by_category(category_id):
 
 @app.route('/api/product/user/<user_id>', methods=['GET'])
 def get_all_products_by_user(user_id):
-    products = db.session.query(Product, ProductImage, ProductCategory, User, Currency).join(
+    products = db.session.query(Product, User, Currency, Address, ProductImage, ProductCategory).join(
         ProductImage, Product.id == ProductImage.product_id).join(
+        Address, Product.address_id == Address.id).join(
         ProductCategory, Product.category_id == ProductCategory.id).join(
         Currency, Product.currency_id == Currency.id).join(
         User, Product.user_id == User.id).filter(
@@ -713,14 +713,18 @@ def get_all_products_by_user(user_id):
         product_data['id'] = product.Product.id
         product_data['name'] = product.Product.name
         product_data['price'] = str(product.Product.price)
+        product_data['shipping_fee'] = str(product.Product.shipping_fee)
         product_data['currency'] = product.Currency.unit_symbol
         product_data['thumbnail'] = product.ProductImage.image
         product_data['description'] = product.Product.description
         product_data['category'] = product.ProductCategory.name
+        product_data['condition_id'] = product.Product.condition_id
         product_data['category_id'] = product.ProductCategory.id
         product_data['currency_id'] = product.Currency.id
         product_data['user_name'] = product.User.name
         product_data['user_id'] = product.User.id
+        product_data['city'] = product.Address.city
+        product_data['zip'] = product.Address.zipcode
         output.append(product_data)
 
     return jsonify({'status': 'success', 'products': output})
@@ -807,17 +811,26 @@ def update_product(current_user, product_id):
         return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
 
     data = request.get_json()
-
-    product = Product.query.filter_by(
-        id=product_id, user_id=current_user.id).first()
+    product = Product.query.filter_by(id=product_id, user_id=current_user.id).first()
 
     if not product:
         return jsonify({'status': 'not found', 'message': 'No product found'}), 404
 
     product.name = data['name']
     product.price = data['price']
+    product.shipping_fee = data['shipping_fee']
+    product.condition_id = data['condition_id']
+    product.currency_id = data['currency_id']
     product.category_id = data['category_id']
     product.description = data['description']
+
+    db.session.flush()
+    db.session.commit()
+
+    address = Address.query.filter_by(id=product.address_id, user_id=str(current_user.id)).first()
+
+    address.zipcode = data['zip']
+    address.city = data['city']
 
     db.session.commit()
 
@@ -876,9 +889,20 @@ def create_product(current_user):
             print e
 
     try:
+        address_id = create_id()
+        new_address = Address(id=address_id, city=data['city'], zipcode=data['zip'], user_id=current_user.id)
+
+        db.session.add(new_address)
+        db.session.flush()
+        db.session.commit()
+    except Exception as e:
+        print e
+        return jsonify({'status': 'fail', 'message': 'Could not save address!'}), 500
+
+    try:
         db.session.add(
             Product(id=product_id, name=data['name'], price=data['price'], description=data['description'],
-                category_id=data['category_id'], currency_id=data['currency_id'], status='new',
+                address_id=address_id, category_id=data['category_id'], currency_id=data['currency_id'], status='new',
                 condition_id=data['condition_id'], shipping_fee=data['shipping_fee'], user_id=str(current_user.id))
         )
         db.session.flush()
@@ -1490,6 +1514,9 @@ def get_all_products_in_radius():
     data = request.get_json()
 
     location = db.session.query(Location).filter(or_(Location.city == data['city_or_zip'], Location.zip == data['city_or_zip'])).first()
+
+    if not location:
+        return jsonify({'status': 'fail', 'message': 'No location has been found'})
 
     locations = db.session.query(Location, select([text('( 6371 * acos( cos( radians({0}) ) * \
         cos( radians( lat ) ) * cos( radians( lng ) - radians({1}) ) + \
