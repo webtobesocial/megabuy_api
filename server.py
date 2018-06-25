@@ -5,8 +5,8 @@ from flask import Flask, request, jsonify, make_response
 from flask_uploads import UploadSet, configure_uploads, IMAGES
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import or_
-from sqlalchemy.sql import column, func, literal_column, alias
+from sqlalchemy import or_, text
+from sqlalchemy.sql import column, select, func, literal_column, alias
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadTimeSignature
@@ -86,6 +86,16 @@ class Address(db.Model):
     user_id = db.Column(db.String(50))
 
 
+class Location(db.Model):
+    id = db.Column(db.String(50), primary_key=True)
+    created_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    zip = db.Column(db.String(5), unique=True, nullable=False)
+    user_id = db.Column(db.String(50), nullable=False)
+    lat = db.Column(db.Numeric(15,13), nullable=False)
+    lng = db.Column(db.Numeric(15,13), nullable=False)
+    city = db.Column(db.Text, nullable=False)
+
+
 class Payment(db.Model):
     id = db.Column(db.String(50), primary_key=True)
     created_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
@@ -137,6 +147,8 @@ class Product(db.Model):
     thumbnail = db.Column(db.String(500))
     user_id = db.Column(db.String(50))
     status = db.Column(db.String(50))
+    lat = db.Column(db.Numeric(15,13), nullable=False)
+    lng = db.Column(db.Numeric(15,13), nullable=False)
     name = db.Column(db.String(70))
 
 
@@ -171,6 +183,7 @@ class ProductCategory(db.Model):
     created_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
     name = db.Column(db.String(50))
     description = db.Column(db.String(500))
+    parent_id = db.Column(db.String(50))
     user_id = db.Column(db.String(50))
 
 
@@ -514,17 +527,36 @@ def get_all_currencies():
     return jsonify({'status': 'success', 'currencies': output})
 
 
+@app.route('/api/categories/<parent_id>', methods=['GET'])
+def get_all_categories_from_parent_id(parent_id):
+    categories = ProductCategory.query.filter_by(parent_id=parent_id).order_by(
+        ProductCategory.name).all()
+
+    output = []
+    for category in categories:
+        category_data = {}
+        category_data['id'] = category.id
+        category_data['name'] = category.name
+        category_data['description'] = category.description
+        category_data['parent_id'] = category.parent_id
+        category_data['user_id'] = category.user_id
+        output.append(category_data)
+
+    return jsonify({'status': 'success', 'categories': output})
+
+
 @app.route('/api/product-categories', methods=['GET'])
 def get_all_product_categories():
-    product_categories = ProductCategory.query.order_by(
-        ProductCategory.name.desc()).all()
-    output = []
+    product_categories = ProductCategory.query.filter_by(parent_id='').order_by(
+        ProductCategory.name).all()
 
+    output = []
     for product_category in product_categories:
         product_category_data = {}
         product_category_data['id'] = product_category.id
         product_category_data['name'] = product_category.name
         product_category_data['description'] = product_category.description
+        product_category_data['parent_id'] = product_category.parent_id
         product_category_data['user_id'] = product_category.user_id
         output.append(product_category_data)
 
@@ -535,13 +567,14 @@ def get_all_product_categories():
 @token_required
 def get_all_product_categories_by_user(current_user):
     product_categories = ProductCategory.query.filter_by(
-        user_id=current_user.id).order_by(ProductCategory.user_id.desc()).all()
+        user_id=current_user.id).order_by(ProductCategory.name).all()
     output = []
 
     for product_category in product_categories:
         product_category_data = {}
         product_category_data['id'] = product_category.id
         product_category_data['name'] = product_category.name
+        product_category_data['parent_id'] = product_category.parent_id
         product_category_data['description'] = product_category.description
         product_category_data['user_id'] = product_category.user_id
         output.append(product_category_data)
@@ -579,13 +612,13 @@ def update_product_category(current_user, product_category_id):
 
     data = request.get_json()
 
-    product_category = ProductCategory.query.filter_by(
-        id=product_category_id).first()
+    product_category = ProductCategory.query.filter_by(id=product_category_id).first()
 
     if not product_category:
         return jsonify({'status': 'not found', 'message': 'No product found'}), 404
 
     product_category.name = data['name']
+    product_category.parent_id = data['parent_id']
     product_category.description = data['description']
     db.session.commit()
 
@@ -602,10 +635,8 @@ def create_product_category(current_user):
 
     data = request.get_json()
     product_category_id = create_id()
-    new_product_category = ProductCategory(id=product_category_id,
-                                           name=data['name'],
-                                           description=data['description'],
-                                           user_id=current_user.id)
+    new_product_category = ProductCategory(id=product_category_id, name=data['name'],
+        parent_id=data['parent'], description=data['description'], user_id=current_user.id)
 
     db.session.add(new_product_category)
     db.session.commit()
@@ -1146,9 +1177,17 @@ def resend_confirmaton_token(current_user, user_id):
         try:
             token = serializer.dumps(user.email)
             link = 'https://juuwl.de/confirm/{}'.format(token)
-            msg = Message('Confirm your Megabuy account', sender='webtobesocial@gmail.com', recipients=[user.email])
-            msg.body = 'Confirm your email address to complete your Megabuy account.\nIt\'s easy — just click the link below.\n\n{}'.format(link)
-            mail.send(msg)
+            msg = Message('Confirm your juuwl.de account', sender='mail@juuwl.com', recipients=[user.email])
+            msg.body = 'Confirm your email address to complete your juuwl.de account.\nIt\'s easy — just click the link below.\n\n{}'.format(link)
+
+            try:
+                mail.send(msg)
+            except SMTPAuthenticationError as e:
+                print e
+            except SMTPServerDisconnected as e:
+                print e
+            except SMTPException as e:
+                print e
 
             return jsonify({'status': 'success', 'message': 'Confirmation mail has been send to {}'.format(user.email)})
 
@@ -1169,9 +1208,18 @@ def create_confirmaton_token():
         try:
             token = serializer.dumps(email)
             link = 'https://juuwl.de/confirm/{}'.format(token)
-            msg = Message('Confirm your Megabuy account', sender='webtobesocial@gmail.com', recipients=[email])
-            msg.body = 'Confirm your email address to complete your Megabuy account.\nIt\'s easy — just click the link below.\n\n{}'.format(link)
-            mail.send(msg)
+            msg = Message('Confirm your juuwl.de account', sender='mail@juuwl.com', recipients=[email])
+            msg.body = 'Confirm your email address to complete your juuwl.de account.\nIt\'s easy — just click the link below.\n\n{}'.format(link)
+
+            try:
+                mail.send(msg)
+            except SMTPAuthenticationError as e:
+                print e
+            except SMTPServerDisconnected as e:
+                print e
+            except SMTPException as e:
+                print e
+
             return jsonify({'status': 'success', 'message': 'Confirmation mail has been send to {}'.format(email)})
         except Exception as e:
             return e
@@ -1435,6 +1483,32 @@ def create_condition(current_user):
     db.session.commit()
 
     return jsonify({'status': 'success', 'message': 'New condition added!'})
+
+
+@app.route('/api/radius', methods=['POST'])
+def get_all_products_in_radius():
+    data = request.get_json()
+
+    location = db.session.query(Location).filter(or_(Location.city == data['city_or_zip'], Location.zip == data['city_or_zip'])).first()
+
+    locations = db.session.query(Location, select([text('( 6371 * acos( cos( radians({0}) ) * \
+        cos( radians( lat ) ) * cos( radians( lng ) - radians({1}) ) + \
+        sin( radians({0}) ) * sin( radians( lat ) ) ) )'.format(location.lat, location.lng))])
+        .label('distance')).having(column('distance') < '{}'.format(data['distance'])).all()
+
+    output = []
+    for location in locations:
+        location_data = {}
+        location_data['id'] = location.Location.id
+        location_data['zip'] = location.Location.zip
+        location_data['lat'] = str(location.Location.lat)
+        location_data['lng'] = str(location.Location.lng)
+        location_data['city'] = location.Location.city
+        location_data['user_id'] = location.Location.user_id
+        output.append(location_data)
+
+    return jsonify({'status': 'success', 'locations': output})
+
 
 
 if __name__ == '__main__':
