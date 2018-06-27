@@ -16,6 +16,7 @@ from resizeimage import resizeimage
 from flask_mail import Mail, Message
 from PIL import Image
 import flask_whooshalchemy as wa
+import _mysql_exceptions
 import datetime
 import base64
 import uuid
@@ -141,7 +142,7 @@ class Product(db.Model):
     shipping_fee = db.Column(db.Numeric, default=0)
     price = db.Column(db.Numeric, default=0)
     condition_id = db.Column(db.String(50))
-    description = db.Column(db.String(500))
+    description = db.Column(db.Text)
     category_id = db.Column(db.String(50))
     currency_id = db.Column(db.String(30))
     address_id = db.Column(db.String(50))
@@ -645,11 +646,15 @@ def create_product_category(current_user):
 
 @app.route('/api/products', methods=['GET'])
 def get_all_products():
-    products = db.session.query(Product, ProductImage, ProductCategory, User, Currency).join(
-        ProductImage, Product.id == ProductImage.product_id).join(
+    products = db.session.query(Product,  User, Address, Currency, ProductImage,
+        ProductCategory, ProductCondition).join(
+        ProductCondition, Product.condition_id == ProductCondition.id).join(
         ProductCategory, Product.category_id == ProductCategory.id).join(
+        ProductImage, Product.id == ProductImage.product_id).join(
         Currency, Product.currency_id == Currency.id).join(
-        User, Product.user_id == User.id).filter(Product.status != 'sold').group_by(Product.id).all()
+        Address, Product.address_id == Address.id).join(
+        User, Product.user_id == User.id).filter(
+        Product.status != 'sold').group_by(Product.id).all()
 
     output = []
     for product in products:
@@ -658,12 +663,16 @@ def get_all_products():
         product_data['name'] = product.Product.name
         product_data['price'] = str(product.Product.price)
         product_data['currency'] = product.Currency.unit_symbol
+        product_data['condition'] = product.ProductCondition.name
         product_data['thumbnail'] = product.ProductImage.image
         product_data['description'] = product.Product.description
+        product_data['shipping_fee'] = str(product.Product.shipping_fee)
         product_data['category'] = product.ProductCategory.name
         product_data['category_id'] = product.ProductCategory.id
         product_data['currency_id'] = product.Currency.id
         product_data['user_name'] = product.User.name
+        product_data['city'] = product.Address.city
+        product_data['zip'] = product.Address.zipcode
         product_data['user_id'] = product.User.id
         output.append(product_data)
 
@@ -771,12 +780,15 @@ def get_all_products_by_query(search_query):
 
 @app.route('/api/product/<product_id>', methods=['GET'])
 def get_one_product(product_id):
-    product = db.session.query(Product, Currency, User, ProductCategory, ProductImage, ProductCondition,
+    product = db.session.query(Product, Currency, User, Address,
+        Location, ProductCategory, ProductImage, ProductCondition,
         func.group_concat(ProductImage.image).label('product_images')).join(
         ProductCondition, ProductCondition.id == Product.condition_id).join(
         ProductCategory, Product.category_id == ProductCategory.id).join(
         ProductImage, ProductImage.product_id == Product.id).join(
         Currency, Product.currency_id == Currency.id).join(
+        Address, Address.id == Product.address_id).outerjoin(
+        Location, Location.zip == Address.zipcode).join(
         User, Product.user_id == User.id).filter(
         Product.id == product_id).first()
 
@@ -795,6 +807,19 @@ def get_one_product(product_id):
     product_data['description'] = product.Product.description
     product_data['category'] = product.ProductCategory.name
     product_data['category_id'] = product.ProductCategory.id
+
+    if hasattr(product.Location, 'lat'):
+        product_data['lat'] = str(product.Location.lat)
+
+    if hasattr(product.Location, 'lng'):
+        product_data['lng'] = str(product.Location.lng)
+
+    if hasattr(product.Location, 'zip'):
+        product_data['zip'] = str(product.Location.zip)
+
+    if hasattr(product.Location, 'city'):
+        product_data['city'] = str(product.Location.city)
+
     product_data['user_name'] = product.User.name
     product_data['user_id'] = product.User.id
     product_data['image'] = product.product_images
@@ -908,9 +933,9 @@ def create_product(current_user):
         db.session.flush()
         db.session.commit()
         return jsonify({'status': 'success', 'message': 'New product added!'})
-    except Exception as e:
+    except (Exception, _mysql_exceptions.DataError) as e:
         print e
-        return jsonify({'status': 'fail', 'message': 'err!'}), 500
+        return jsonify({'status': 'fail', 'message': 'Please check that all content is well validated'}), 500
 
 
 @app.route('/api/image', methods=['PUT'])
