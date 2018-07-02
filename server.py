@@ -6,6 +6,7 @@ from flask_uploads import UploadSet, configure_uploads, IMAGES
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import or_, text
+from sqlalchemy.sql.expression import not_
 from sqlalchemy.sql import column, select, func, literal_column, alias
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
@@ -176,6 +177,13 @@ class ProductImage(db.Model):
     image = db.Column(db.String(500))
     user_id = db.Column(db.String(50))
     product_id = db.Column(db.String(50))
+
+
+# TODO: implement session id
+class ProductTempImage(db.Model):
+    id = db.Column(db.String(50), primary_key=True)
+    created_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    image = db.Column(db.String(500))
 
 
 class ProductCategory(db.Model):
@@ -527,6 +535,33 @@ def get_all_currencies():
     return jsonify({'status': 'success', 'currencies': output})
 
 
+@app.route('/api/currency/<currency_id>', methods=['GET'])
+def get_currency_by_id(currency_id):
+    currency = Currency.query.filter_by(id=currency_id).first()
+
+    currency_data = {}
+    currency_data['id'] = currency.id
+    currency_data['name'] = currency.name
+    currency_data['iso_code'] = currency.iso_code
+    currency_data['unit_symbol'] = currency.unit_symbol
+
+    return jsonify({'status': 'success', 'currency': currency_data})
+
+
+@app.route('/api/category/<category_id>', methods=['GET'])
+def get_category_by_id(category_id):
+    category = ProductCategory.query.filter_by(id=category_id).first()
+
+    category_data = {}
+    category_data['id'] = category.id
+    category_data['name'] = category.name
+    category_data['description'] = category.description
+    category_data['parent_id'] = category.parent_id
+    category_data['user_id'] = category.user_id
+
+    return jsonify({'status': 'success', 'category': category_data})
+
+
 @app.route('/api/categories/<parent_id>', methods=['GET'])
 def get_all_categories_from_parent_id(parent_id):
     categories = ProductCategory.query.filter_by(parent_id=parent_id).order_by(
@@ -646,8 +681,9 @@ def create_product_category(current_user):
 
 @app.route('/api/products', methods=['GET'])
 def get_all_products():
-    products = db.session.query(Product,  User, Address, Currency, ProductImage,
-        ProductCategory, ProductCondition).join(
+    products = db.session.query(Product,  User, Address,
+        Currency, ProductImage, ProductCategory, ProductCondition,
+        func.group_concat(ProductImage.image).label('product_images')).join(
         ProductCondition, Product.condition_id == ProductCondition.id).join(
         ProductCategory, Product.category_id == ProductCategory.id).join(
         ProductImage, Product.id == ProductImage.product_id).join(
@@ -671,6 +707,7 @@ def get_all_products():
         product_data['category_id'] = product.ProductCategory.id
         product_data['currency_id'] = product.Currency.id
         product_data['user_name'] = product.User.name
+        product_data['image'] = product.product_images
         product_data['city'] = product.Address.city
         product_data['zip'] = product.Address.zipcode
         product_data['user_id'] = product.User.id
@@ -708,7 +745,7 @@ def get_all_products_by_category(category_id):
 
 @app.route('/api/product/user/<user_id>', methods=['GET'])
 def get_all_products_by_user(user_id):
-    products = db.session.query(Product, User, Currency, Address, ProductImage, ProductCategory).join(
+    products = db.session.query(Product, User, Currency, Address, ProductImage, ProductCategory).outerjoin(
         ProductImage, Product.id == ProductImage.product_id).join(
         Address, Product.address_id == Address.id).join(
         ProductCategory, Product.category_id == ProductCategory.id).join(
@@ -724,7 +761,10 @@ def get_all_products_by_user(user_id):
         product_data['price'] = str(product.Product.price)
         product_data['shipping_fee'] = str(product.Product.shipping_fee)
         product_data['currency'] = product.Currency.unit_symbol
-        product_data['thumbnail'] = product.ProductImage.image
+
+        if hasattr(product.ProductImage, 'image'):
+            product_data['thumbnail'] = product.ProductImage.image
+
         product_data['description'] = product.Product.description
         product_data['category'] = product.ProductCategory.name
         product_data['condition_id'] = product.Product.condition_id
@@ -768,8 +808,7 @@ def get_all_products_by_query(search_query):
         product_data['currency'] = get_currency_unit(product.currency_id)
         product_data['thumbnail'] = get_product_image(product.id)
         product_data['description'] = product.description
-        product_data['category'] = get_product_category_name(
-            product.category_id)
+        product_data['category'] = get_product_category_name(product.category_id)
         product_data['category_id'] = product.category_id
         product_data['user_name'] = get_user_name(product.user_id)
         product_data['user_id'] = product.user_id
@@ -881,21 +920,28 @@ def delete_product(current_user, product_id):
     return jsonify({'status': 'success', 'message': 'Product item deleted!'})
 
 
-@app.route('/api/product', methods=['POST'])
-@token_required
-def create_product(current_user):
-    user = query_user_by_id(current_user.id)
+@app.route('/api/tmp/image/<image_id>', methods=['GET'])
+def get_tmp_image_by_id(image_id):
+    image = ProductTempImage.query.filter_by(id=image_id).first()
 
-    if not user:
-        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+    if not image:
+        return 404
 
-    data = request.form
-    product_id = create_id()
+    image_data = {}
+    image_data['id'] = image.id
+    image_data['image'] = image.image
+
+    return jsonify({'status': 'success', 'image': image_data})
+
+
+@app.route('/api/tmp/image', methods=['POST'])
+def upload_temp_image():
+    upload_tmp_id = []
 
     for image in request.files.getlist('image'):
-        product_image_id = create_id()
+        tmp_image_id = create_id()
         filetype = image.mimetype.split('/')[1]
-        name = '{}.{}'.format(product_image_id, filetype)
+        name = '{}.{}'.format(tmp_image_id, filetype)
         path = 'static/img/{}'.format(name)
         image.save(path)
 
@@ -904,14 +950,37 @@ def create_product(current_user):
                 cover = resizeimage.resize_cover(
                     image, [800, 500], validate=False)
                 cover.save(path, image.format)
-                db.session.add(
-                    ProductImage(
-                        id=product_image_id, product_id=product_id, user_id=str(current_user.id), image=path)
-                )
+
+                db.session.add(ProductTempImage(id=tmp_image_id, image=path))
                 db.session.flush()
                 db.session.commit()
+                upload_tmp_id.append(tmp_image_id)
         except Exception as e:
             print e
+            return jsonify({'status': 'fail'})
+
+    return jsonify({'status': 'Saved new tmp image with id {}'.format(', '.join(upload_tmp_id)), 'image': upload_tmp_id})
+
+
+@app.route('/api/product', methods=['POST'])
+@token_required
+def create_product(current_user):
+    user = query_user_by_id(current_user.id)
+
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
+    data = request.get_json()
+    product_id = create_id()
+
+    for tmp_image_id in data['image'].split(','):
+        tmp_image = ProductTempImage.query.filter_by(id=tmp_image_id).first()
+
+        image_id = create_id()
+
+        db.session.add(ProductImage(id=image_id, image=tmp_image.image, user_id=str(current_user.id), product_id=product_id))
+        db.session.flush()
+        db.session.commit()
 
     try:
         address_id = create_id()
@@ -932,7 +1001,7 @@ def create_product(current_user):
         )
         db.session.flush()
         db.session.commit()
-        return jsonify({'status': 'success', 'message': 'New product added!'})
+        return jsonify({'status': 'success', 'message': 'New product with id {} added!'.format(product_id)})
     except (Exception, _mysql_exceptions.DataError) as e:
         print e
         return jsonify({'status': 'fail', 'message': 'Please check that all content is well validated'}), 500
@@ -1497,6 +1566,23 @@ def update_order(current_user, order_id):
     db.session.commit()
 
     return jsonify({'status': 'success', 'message': 'Updated order with id {}!'.format(order_id), 'id': order_id})
+
+
+@app.route('/api/condition/<condition_id>', methods=['GET'])
+def get_condition_by_id(condition_id):
+    print condition_id
+    condition = ProductCondition.query.filter_by(id=condition_id).first()
+
+    if not condition:
+        return jsonify({'status': 'fail'})
+
+    condition_data = {}
+    condition_data['id'] = condition.id
+    condition_data['name'] = condition.name
+    condition_data['description'] = condition.description
+    condition_data['user_id'] = condition.user_id
+
+    return jsonify({'status': 'success', 'condition': condition_data})
 
 
 @app.route('/api/conditions', methods=['GET'])
