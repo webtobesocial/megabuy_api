@@ -690,7 +690,8 @@ def get_all_products():
         Currency, Product.currency_id == Currency.id).join(
         Address, Product.address_id == Address.id).join(
         User, Product.user_id == User.id).filter(
-        Product.status != 'sold').group_by(Product.id).all()
+        Product.status != 'sold').group_by(Product.id).order_by(
+        Product.created_date.desc()).all()
 
     output = []
     for product in products:
@@ -797,7 +798,8 @@ def get_currency_unit(currency_id):
 
 @app.route('/api/search/<search_query>', methods=['GET'])
 def get_all_products_by_query(search_query):
-    products = Product.query.whoosh_search(search_query).all()
+    products = Product.query.whoosh_search(search_query).join(
+        User, Product.user_id == User.id).all()
 
     output = []
     for product in products:
@@ -810,8 +812,8 @@ def get_all_products_by_query(search_query):
         product_data['description'] = product.description
         product_data['category'] = get_product_category_name(product.category_id)
         product_data['category_id'] = product.category_id
-        product_data['user_name'] = get_user_name(product.user_id)
-        product_data['user_id'] = product.user_id
+        product_data['user_name'] = product.User.name
+        product_data['user_id'] = product.User.id
         output.append(product_data)
 
     return jsonify({'status': 'success', 'products': output})
@@ -1513,7 +1515,8 @@ def get_order(current_user, order_id):
 @app.route('/api/order/user/<user_id>', methods=['GET'])
 @token_required
 def get_all_order_by_user(current_user, user_id):
-    orders = db.session.query(Order, Product, User, Currency, Address, ProductImage, ProductCondition).join(
+    orders = db.session.query(Order, Product, User, Currency,
+        Address, ProductImage, ProductCondition).join(
         User, Order.user_id == User.id).join(
         Address, Order.address_id == Address.id).join(
         Product, Order.product_id == Product.id).join(
@@ -1624,28 +1627,54 @@ def create_condition(current_user):
 def get_all_products_in_radius():
     data = request.get_json()
 
-    location = db.session.query(Location).filter(or_(Location.city == data['city_or_zip'], Location.zip == data['city_or_zip'])).first()
+    location = db.session.query(Location).filter(or_(Location.city == data['city_or_zip'],
+        Location.zip == data['city_or_zip'])).first()
 
     if not location:
         return jsonify({'status': 'fail', 'message': 'No location has been found'})
 
-    locations = db.session.query(Location, select([text('( 6371 * acos( cos( radians({0}) ) * \
+    products = db.session.query(Location, Product, Currency,
+        ProductCategory, ProductCondition, ProductImage, Address, User,
+        func.group_concat(ProductImage.image).label('product_images'),
+        select([text('( 6371 * acos( cos( radians({0}) ) * \
         cos( radians( lat ) ) * cos( radians( lng ) - radians({1}) ) + \
         sin( radians({0}) ) * sin( radians( lat ) ) ) )'.format(location.lat, location.lng))])
-        .label('distance')).having(column('distance') < '{}'.format(data['distance'])).all()
+        .label('distance')).join(Address, Address.zipcode == Location.zip) \
+        .join(Product, Product.address_id == Address.id) \
+        .join(Currency, Product.currency_id == Currency.id) \
+        .join(ProductCondition, Product.condition_id == ProductCondition.id) \
+        .join(ProductCategory, Product.category_id == ProductCategory.id) \
+        .join(ProductImage, ProductImage.product_id == Product.id) \
+        .join(User, Product.user_id == User.id) \
+        .filter(Product.status != 'sold') \
+        .having(column('distance') < '{}'.format(data['distance'])) \
+        .group_by(Product.id) \
+        .order_by(Product.created_date.desc()) \
+        .all()
 
     output = []
-    for location in locations:
-        location_data = {}
-        location_data['id'] = location.Location.id
-        location_data['zip'] = location.Location.zip
-        location_data['lat'] = str(location.Location.lat)
-        location_data['lng'] = str(location.Location.lng)
-        location_data['city'] = location.Location.city
-        location_data['user_id'] = location.Location.user_id
-        output.append(location_data)
+    for product in products:
+        product_data = {}
 
-    return jsonify({'status': 'success', 'locations': output})
+        product_data['id'] = product.Product.id
+        product_data['name'] = product.Product.name
+        product_data['price'] = str(product.Product.price)
+        product_data['currency'] = product.Currency.unit_symbol
+        product_data['condition'] = product.ProductCondition.name
+        product_data['thumbnail'] = product.ProductImage.image
+        product_data['description'] = product.Product.description
+        product_data['shipping_fee'] = str(product.Product.shipping_fee)
+        product_data['category'] = product.ProductCategory.name
+        product_data['category_id'] = product.ProductCategory.id
+        product_data['currency_id'] = product.Currency.id
+        product_data['user_name'] = product.User.name
+        product_data['image'] = product.product_images
+        product_data['city'] = product.Address.city
+        product_data['zip'] = product.Address.zipcode
+        product_data['user_id'] = product.User.id
+        output.append(product_data)
+
+    return jsonify({'status': 'success', 'products': output})
 
 
 
