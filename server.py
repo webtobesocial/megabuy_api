@@ -5,7 +5,7 @@ from flask import Flask, request, jsonify, make_response
 from flask_uploads import UploadSet, configure_uploads, IMAGES
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import or_, text
+from sqlalchemy import or_, text, UniqueConstraint
 from sqlalchemy.sql.expression import not_
 from sqlalchemy.sql import column, select, func, literal_column, alias
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -151,6 +151,14 @@ class Product(db.Model):
     user_id = db.Column(db.String(50))
     status = db.Column(db.String(50))
     name = db.Column(db.String(70))
+
+
+class Wishlist(db.Model):
+    id = db.Column(db.String(50), primary_key=True)
+    created_date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    product_id = db.Column(db.String(50), nullable=False)
+    user_id = db.Column(db.String(50), nullable=False)
+    __table_args__ = (UniqueConstraint('product_id', 'user_id'),)
 
 
 class Layout(db.Model):
@@ -354,7 +362,7 @@ def create_user():
         return jsonify({'status': 'conflict', 'message': 'User already exists!'}), 409
     else:
         db.session.commit()
-        return jsonify({'status': 'success', 'message': 'New user created!'}), 201
+        return jsonify({'status': 'success', 'message': 'New user created!'})
 
 
 @app.route('/api/user/<public_id>', methods=['PUT'])
@@ -1677,6 +1685,67 @@ def get_all_products_in_radius():
     return jsonify({'status': 'success', 'products': output})
 
 
+@app.route('/api/wishlist', methods=['POST'])
+@token_required
+def create_wishlist_item(current_user):
+    user = query_user_by_id(current_user.id)
+
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
+    data = request.get_json()
+    wishlist_id = create_id()
+
+    try:
+        new_wishlist = Wishlist(id=wishlist_id, product_id=data['product_id'], user_id=str(current_user.id))
+        db.session.add(new_wishlist)
+        db.session.commit()
+    except IntegrityError as e:
+        db.session.rollback()
+        return jsonify({'status': 'conflict', 'message': 'Item already on your wishlist!'}), 409
+
+    return jsonify({'status': 'success', 'message': 'New wishlist with id {} was created!'.format(wishlist_id), 'id': wishlist_id})
+
+
+@app.route('/api/wishlist', methods=['GET'])
+@token_required
+def get_all_wishlist_items_by_user(current_user):
+    wishlist_items = db.session.query(Wishlist, Product, Currency, Address,
+        ProductCondition, ProductImage, ProductCategory, User ) \
+        .filter(Wishlist.user_id == str(current_user.id)) \
+        .join(Product, Product.id == Wishlist.product_id) \
+        .join(Currency, Product.currency_id == Currency.id) \
+        .join(ProductCondition, Product.condition_id == ProductCondition.id) \
+        .join(ProductCategory, Product.category_id == ProductCategory.id) \
+        .join(ProductImage, ProductImage.product_id == Product.id) \
+        .join(Address, Product.address_id == Address.id) \
+        .join(User, Product.user_id == User.id) \
+        .group_by(Product.id) \
+        .all()
+
+    output = []
+    for wishlist_item in wishlist_items:
+        wishlist_data = {}
+        wishlist_data['id'] = wishlist_item.Product.id
+        wishlist_data['product_id'] = wishlist_item.Product.id
+        wishlist_data['name'] = wishlist_item.Product.name
+        wishlist_data['price'] = str(wishlist_item.Product.price)
+        wishlist_data['currency'] = wishlist_item.Currency.unit_symbol
+        wishlist_data['condition'] = wishlist_item.ProductCondition.name
+        wishlist_data['thumbnail'] = wishlist_item.ProductImage.image
+        wishlist_data['description'] = wishlist_item.Product.description
+        wishlist_data['shipping_fee'] = str(wishlist_item.Product.shipping_fee)
+        wishlist_data['category'] = wishlist_item.ProductCategory.name
+        wishlist_data['category_id'] = wishlist_item.ProductCategory.id
+        wishlist_data['currency_id'] = wishlist_item.Currency.id
+        wishlist_data['user_name'] = wishlist_item.User.name
+        # wishlist_data['image'] = wishlist_item.product_images
+        wishlist_data['city'] = wishlist_item.Address.city
+        wishlist_data['zip'] = wishlist_item.Address.zipcode
+        wishlist_data['user_id'] = wishlist_item.User.id
+        output.append(wishlist_data)
+
+    return jsonify({'status': 'success', 'wishlist': output})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
