@@ -1747,5 +1747,36 @@ def get_all_wishlist_items_by_user(current_user):
 
     return jsonify({'status': 'success', 'wishlist': output})
 
+
+@app.route('/api/wishlist/<product_id>', methods=['GET'])
+@token_required
+def get_wishlist_item_by_product(current_user, product_id):
+    wishlist_item = Wishlist.query.filter_by(product_id=product_id, user_id=str(current_user.id)).first()
+
+    if not wishlist_item:
+        return jsonify({'status': 'success', 'wishlist': False})
+
+    return jsonify({'status': 'success', 'wishlist': True})
+
+
+@app.route('/api/wishlist/<product_id>', methods=['DELETE'])
+@token_required
+def delete_item_from_wishlist(current_user, product_id):
+    user = query_user_by_id(current_user.id)
+
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
+    wishlist = Wishlist.query.filter_by(product_id=product_id, user_id=str(current_user.id)).first()
+
+    if not wishlist:
+        return jsonify({'status': 'not found', 'message': 'Item not found on your wishlist!'}), 404
+
+    db.session.delete(wishlist)
+    db.session.commit()
+
+    return jsonify({'status': 'success', 'message': 'Item successfully removed from your wishlist.'})
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
