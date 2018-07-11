@@ -1704,14 +1704,15 @@ def create_wishlist_item(current_user):
         db.session.rollback()
         return jsonify({'status': 'conflict', 'message': 'Item already on your wishlist!'}), 409
 
-    return jsonify({'status': 'success', 'message': 'New wishlist with id {} was created!'.format(wishlist_id), 'id': wishlist_id})
+    return jsonify({'status': 'success', 'message': 'Added item to your wishlist!'.format(wishlist_id), 'id': wishlist_id})
 
 
 @app.route('/api/wishlist', methods=['GET'])
 @token_required
 def get_all_wishlist_items_by_user(current_user):
     wishlist_items = db.session.query(Wishlist, Product, Currency, Address,
-        ProductCondition, ProductImage, ProductCategory, User ) \
+        ProductCondition, ProductImage, ProductCategory, User,
+        func.group_concat(ProductImage.image).label('product_images')) \
         .filter(Wishlist.user_id == str(current_user.id)) \
         .join(Product, Product.id == Wishlist.product_id) \
         .join(Currency, Product.currency_id == Currency.id) \
@@ -1739,7 +1740,7 @@ def get_all_wishlist_items_by_user(current_user):
         wishlist_data['category_id'] = wishlist_item.ProductCategory.id
         wishlist_data['currency_id'] = wishlist_item.Currency.id
         wishlist_data['user_name'] = wishlist_item.User.name
-        # wishlist_data['image'] = wishlist_item.product_images
+        wishlist_data['image'] = wishlist_item.product_images
         wishlist_data['city'] = wishlist_item.Address.city
         wishlist_data['zip'] = wishlist_item.Address.zipcode
         wishlist_data['user_id'] = wishlist_item.User.id
