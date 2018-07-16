@@ -265,35 +265,6 @@ def query_user_by_id(user_id):
     return User.query.filter_by(id=user_id, confirmed=True).first()
 
 
-@app.route('/api/user', methods=['GET'])
-@token_required
-def get_all_users(current_user):
-    try:
-        limit = int(request.args.get('limit'))
-        page = int(request.args.get('page'))
-    except ValueError as e:
-        print e
-        return jsonify({'status': 'not found', 'message': 'No user found!'}), 404
-
-    users = User.query.paginate(page, limit, False)
-    total = users.total
-    output = []
-
-    for user in users.items:
-        user_data = {}
-        user_data['public_id'] = user.public_id
-        user_data['confirmed'] = user.confirmed
-        user_data['username'] = user.username
-        user_data['website'] = user.website
-        user_data['email'] = user.email
-        user_data['phone'] = user.phone
-        user_data['admin'] = user.admin
-        user_data['name'] = user.name
-        output.append(user_data)
-
-    return jsonify({'status': 'success', 'total': total, 'users': output})
-
-
 @app.route('/api/user/<public_id>', methods=['GET'])
 @token_required
 def get_one_user(current_user, public_id):
