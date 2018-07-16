@@ -1465,15 +1465,6 @@ def create_order(current_user):
         return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
 
     data = request.get_json()
-
-    product = Product.query.filter_by(id=data['product_id']).first()
-
-    if not product:
-        return jsonify({'status': 'fail', 'message': 'Product was not found!'}), 404
-
-    product.status = 'sold'
-    db.session.flush()
-
     order_id = create_id()
     new_order = Order(id=order_id, status='pending', user_id=data['user_id'], product_id=data['product_id'], address_id=data['address_id'])
 
@@ -1485,7 +1476,7 @@ def create_order(current_user):
 
 @app.route('/api/order/<order_id>', methods=['GET'])
 @token_required
-def get_order(current_user, order_id):
+def get_order_by_id(current_user, order_id):
     order = db.session.query(Order, Product, User, Address, Currency, ProductCondition,
         func.group_concat(ProductImage.image).label('product_images')).join(
         User, Order.user_id == User.id).join(
@@ -1493,14 +1484,14 @@ def get_order(current_user, order_id):
         Currency, Product.currency_id == Currency.id).join(
         ProductCondition, Product.condition_id == ProductCondition.id).join(
         ProductImage, ProductImage.product_id == Product.id).join(
-        Address, Order.address_id == Address.id).filter(
+        Address, Order.address_id == Address.id).filter(Order.status != 'success').filter(
         Order.id == order_id).group_by(Product.id, ProductImage.id).first()
 
     if not order:
-        return jsonify({'status': 'not found', 'message': 'Address was not found'}), 404
+        return jsonify({'status': 'not found', 'message': 'Order was not found'}), 404
 
     order_data = {}
-    order_data['id'] = order.Address.id
+    order_data['id'] = order.Order.id
     order_data['name'] = order.Product.name
     order_data['price'] = str(order.Product.price)
     order_data['condition'] = order.ProductCondition.name
@@ -1531,8 +1522,9 @@ def get_all_order_by_user(current_user, user_id):
         ProductCondition, Product.condition_id == ProductCondition.id).join(
         Currency, Product.currency_id == Currency.id).join(
         ProductImage, ProductImage.product_id == Product.id).filter(
-        Order.visible == True).filter(Order.user_id == user_id).group_by(
-        Order.id).order_by(Order.created_date.desc()).all()
+        Order.status == 'success').filter(Order.visible == True).filter(
+        Order.user_id == user_id).group_by(Order.id).order_by(
+        Order.created_date.desc()).all()
 
     if not orders:
         return jsonify({'status': 'not found', 'message': 'No order was found'}), 404
@@ -1562,7 +1554,7 @@ def get_all_order_by_user(current_user, user_id):
 
 @app.route('/api/order/<order_id>', methods=['PUT'])
 @token_required
-def update_order(current_user, order_id):
+def update_order_flag_visible(current_user, order_id):
     user = query_user_by_id(current_user.id)
 
     if not user:
@@ -1574,6 +1566,34 @@ def update_order(current_user, order_id):
         return jsonify({'status': 'Order not found'}), 404
 
     order.visible = False
+    db.session.commit()
+
+    return jsonify({'status': 'success', 'message': 'Updated order with id {}!'.format(order_id), 'id': order_id})
+
+
+@app.route('/api/order/status/<order_id>', methods=['PUT'])
+@token_required
+def update_order_status(current_user, order_id):
+    user = query_user_by_id(current_user.id)
+
+    if not user:
+        return jsonify({'status': 'fail', 'message': 'You must confirm your mail address!'}), 401
+
+    order = Order.query.filter_by(id=order_id).filter_by(user_id=str(current_user.id)).first()
+
+    if not order:
+        return jsonify({'status': 'Order was not found'}), 404
+
+    product = Product.query.filter_by(id=order.product_id).first()
+
+    if not product:
+        return jsonify({'status': 'Product was not found'}), 404
+
+    product.status = 'sold'
+    db.session.flush()
+
+    order.status = 'success'
+    order.created_date = datetime.datetime.utcnow()
     db.session.commit()
 
     return jsonify({'status': 'success', 'message': 'Updated order with id {}!'.format(order_id), 'id': order_id})
