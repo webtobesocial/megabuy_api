@@ -19,5 +19,5 @@ python-resize-image==1.1.11
 requests==2.18.4
 SQLAlchemy==1.2.8
 urllib3==1.22
-Werkzeug==0.14.1
+Werkzeug==0.15.3
 Whoosh==2.7.4
